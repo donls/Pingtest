@@ -1,0 +1,1463 @@
+#!/bin/bash 
+
+# Temporarily run verbosely with '-xv' for 
+# debugging purposes -JM
+
+# $Id: pt,v 3.7 2005/08/28 22:18:21 jlarsen Exp $
+#Copyright: 2004 and 2005 by John R Larsen
+#Modified to run as a link test script by Omnitec Corporation
+# Copyright 2009, Omnitec Corporation - BSD License
+# 2010 05 23 - added test to assure that log rotation
+# does not happen more than once a day
+
+# Description: bash script to ping an IP forever and redirect output to a file.
+# It can be run as a cron job or from the shell.
+#
+# Two logfiles are maintained as well as several statistical counters.  Each
+# ping is logged to $IP.logfile.  A counter is incremented each time a ping
+# is dropped and decremented each time a ping is successful.  If the number
+# of dropped pings exceeds a threshold (default 9) an email is sent to the
+# address stored in $ALERT_EMAIL (default value set below).  When the
+# dropped count returns to zero another email is sent indicating the site
+# is accessible again.  Each time an email is sent an entry is added to the
+# file $IP.emails for easy analysis.
+#
+ALERT_EMAIL=3149159900@messaging.sprintpcs.com,lvlammert@gmail.com,3145700809@tmomail.net
+REPORT_EMAIL=lvl@omnitec.net
+
+# The $IP.logfile is compressed weekly and 4 old logfiles are maintained.  The
+# $IP.emails file isn't automatically deleted.  It should be small since
+# it only has the email lines in it.
+#
+# Below is a typical crontab line for using this script.  
+# 0,15,30,45 * * * * /<homedir>/pingtest/pt 206.197.251.254 -r 15 -t 4  -c
+#
+
+#------------------------------------------------------------------------------
+# display_help: Function to display the help screen
+function display_help () {
+local func_name=display_help
+if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> Inside display_help" >> $IP.logfile; fi
+cat << EOF
+----- ping_test ($SCRIPT_VER $SCRIPT_DATE) --------------------------------------------
+usage:
+pt IP | Domain_name  [ options ]
+
+The IP or domain name is pinged once every ping_rate until the program is
+halted.  Ping results stored in IP.logfile, email log IP.emails.
+
+Options:
+				
+-c      Cron job processing
+-d n    debug level (ie. -d 0x4040 )
+-dl     Delete Logs
+-s      Show statistics
+-ea adr Email alert address (Default: $ALERT_EMAIL)
+-er adr	Email report address (Default: $REPORT_EMAIL)
+        (Separate multiple email addresses with commas and no spaces)
+-h      Help screen
+-hd     Help Debug
+-k      Kill a running instance of pt
+-m      Make a \$IP.copy script. You MUST modify this for your situation!
+-mv IP  Rename all the files associated with this test to the IP entered.
+-r n    ping Rate in seconds (Default: $PING_RATE)
+-t n    Threshold number of dropped packets before sending an email (Default: $DROPPED_THRESHOLD)
+-tto n  Traceroute TimeOut value in seconds (Default: 15)
+
+Copyright: 2004 and 2005 by John R Larsen
+		Modified for use as a link monitor scipt
+Copyright: 2009 Omnitec Corporation
+EOF
+} # display_help
+
+
+#-------------------------------------------------------------------------------
+# get_version.  Function that parses script version and date info from the RCS Id line.
+function get_version () {
+   SCRIPT_VER="v`echo '$Id: pt,v 4.1 2019 Exp $' | awk '{print $3}'`"
+   SCRIPT_DATE="`echo '$Id: pt,v 4.1 2012 Exp $' | awk '{print $4}'`"
+} # get_version
+
+
+#------------------------------------------------------------------------------
+# display_debug_help:  Function to display debug help.
+function display_debug_help () {
+local func_name=display_debug_help
+if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> Inside display_debug_help" >> $IP.logfile; fi
+cat << EOF | more
+----- Debug Help ($SCRIPT_VER $SCRIPT_DATE) ---------------------------------------
+Debug is enabled in one of three ways in decending order of precedence: 
+
+   "-d 0xNNNN" on command line
+   PT_DEBUG_FLAGS environment variable
+	"debug_flags" file in same directory as pt
+
+Debug output can be changed "on the fly" by changing the contents of "debug_flags",
+which is read each time pt goes through its while loop.
+
+Debug output is added only to the logfile.  If you want to see in real time what is
+going on then tail the logfile with this command: "tail -f $IP.logfile".
+
+Each debug line is qualified with a construct like the following:
+
+if [ \$((\$D & 0x1)) -ne 0 ]; then echo "[\$LINENO]\$func_name:\$\$> Debug message or action";fi
+
+The expression on the left of -ne is a bash construct.  The $((expr)) gets
+evaluated and returns a value.  The expression I'm using is "$D & 0xNN".  The
+& performs a bitwise AND and returns the result.  If it is zero (no matching
+bits) then the debug line is skipped.  If it is non zero then the debug line
+is performed.  Each debug line can have multiple bits that turn it on or just
+a single bit.  The pattern "0xNN" is the collection of bits that turn the 
+debug on.  The action of each bit is defined below.
+
+00000000 - No debug
+
+00000001 - Enable all the "Inside function name" debug lines
+00000002 - process_command_line verbose output
+00000004 - Inside while loop message
+00000008 - send_alert: output message each time an alert email is sent
+
+00000010 - main: Display environment when starting up
+00000020 - fp: Display calls to fp with arguments and results
+00000040 - test_pid: Display contents of \$\$.test.pid
+00000080 - main: Force TEST_PING_STATUS to toggle every 5 while loops for testing
+
+00000100 - main: Output the contents of $IP.stats
+00000400 - main: Update and output the contents of $IP.route
+
+00001000 - ping_ip: Output \$PING_TIME extracted from \$PARSED_TIMES
+00008000 - get_route: Enable debugging output
+
+80000000 - Don't output the "Debug flags changed" messages in "set_debug_level"
+
+
+Copyright: 2004 and 2005 by John R Larsen
+Free for personal use.  Contact the author for commercial use.
+http://larsen-family.us            theClaw56@larsen-family.us
+EOF
+} # display_debug_help
+
+
+
+#------------------------------------------------------------------------------
+# set_debug_level:  Function that sets the $D variable based on a file, an
+#environment variable, or a command line variable. See display_debug_help.
+function set_debug_level () {
+local func_name=set_debug_level
+
+# Note: Command line -d overrides environment variable PT_DEBUG_FLAGS if it exists, which overrides debug_flags file if it exists
+# Check one time if PT_DEBUG_FLAGS env variable exists and use it if it does
+if [ "${ENV_VAR_TESTED:=FALSE}" = "FALSE" ]; then
+	ENV_VAR_TESTED=TRUE
+	export D=${PT_DEBUG_FLAGS:-0}
+	if [ "$IP" != "" ] && [ "$D" != "0" ] && [ $(($D & 0x80000000)) -eq 0 ]; then 
+		echo "[$LINENO]$$>: set_debug_level: Debug flags changed to: $D at `date +%Y\-%b\-%d\ %H\:%M\:%S\ %a`" >> $IP.logfile
+	fi
+fi
+
+# Check the existence of a file named "debug_flags" and use it if conditions are right
+if [ -e debug_flags ]; then
+	if [ "${DEBUG_FLAGS_FILE:=FIRST_READ}" = "FIRST_READ" ]; then
+		# Getting here means the debug_flags file has never been read.
+		DEBUG_FLAGS_FILE=`cat -s debug_flags`
+		if [ "$D" = "0" ]; then
+			# Getting here means $D was zero and the debug_flags contents should be used instead since env variable doesn't exist or has value of 0
+			D=$DEBUG_FLAGS_FILE
+			if [ "$IP" != "" ] && [ "$D" != "0" ] && [ $(($D & 0x80000000)) -eq 0 ]; then 
+				echo "[$LINENO]$$>: set_debug_level: Debug flags changed to: $D at `date +%Y\-%b\-%d\ %H\:%M\:%S\ %a`" >> $IP.logfile
+			fi
+		fi
+	else
+		# Read debug_flags file and update $D if the file has changed
+		NEW_DEBUG_FLAGS_FILE=`cat -s debug_flags`
+		if [ "$NEW_DEBUG_FLAGS_FILE" != $DEBUG_FLAGS_FILE ]; then
+			DEBUG_FLAGS_FILE=$NEW_DEBUG_FLAGS_FILE
+			D=$DEBUG_FLAGS_FILE
+			if [ "$IP" != "" ] && [ $(($D & 0x80000000)) -eq 0 ]; then
+				echo "[$LINENO]$$>: set_debug_level: Debug flags changed to: $D at `date +%Y\-%b\-%d\ %H\:%M\:%S\ %a`" >> $IP.logfile
+			fi
+		fi
+	fi
+fi
+
+# This line is at the end because $D is set in this function
+if [ "$IP" != "" ] && [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> Inside set_debug_level (Flags: $D)" >> $IP.logfile; fi
+} # set_debug_level
+
+
+#-------------------------------------------------------------------------------
+# setup_env.  Function that determines what OS the script is running on and
+# setups environment variables accordingly.
+function setup_env () {
+local func_name=setup_env
+if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> Inside setup_env" >> $IP.logfile; fi
+# Figure out which OS you're running on and setup program paths accordingly
+OS_TYPE=`uname -a | awk '{print $3}'`
+case $OS_TYPE in
+	5.8*) # Solaris 8
+		;;
+
+	2.*) # Linux 2.x kernels
+		export HOST=`/bin/hostname`
+		LS=/bin/ls
+		MAIL=/bin/mail
+		NETSTAT="/bin/netstat -t"
+		PING=/bin/ping
+		PS=/bin/ps
+		export SCP=/usr/bin/scp
+		TRACE_ROUTE=/bin/traceroute
+		W=/usr/bin/w
+		ZIP_PGM=/usr/bin/zip
+		;;
+
+	1.5*) # cygwin
+
+
+		;;
+
+	*) # Unknown OS
+		echo "ERROR [$LINENO]$func_name> Unknown OS" | tee -a $IP.logfile
+		exit
+		;;
+esac
+
+# Set the default values of all environment variables here
+DASH_HOURLY=""
+HOURLY_STATS=FALSE
+WEB_PAGE_UPDATE_RATE=10
+CRONJOB=FALSE
+DELETE_STATS=FALSE
+DELETE_LOGS=FALSE
+DROPPED_THRESHOLD=9
+IP=not_entered
+KILL_PT=FALSE
+PING_RATE=5
+SHOW_STATS=FALSE
+WORKING_DIR=""
+YES=1
+NO=0
+TRUE=1
+FALSE=0
+ACTIVE=0
+DEAD=1
+TRACE_COMPLETED=0
+TIMED_OUT=255
+TRACEROUTE_TIMEOUT=15
+} # setup_env
+
+
+#------------------------------------------------------------------
+# get_route:  Function that does traceroute on IP 
+# $1: IP to traceroute 
+# $2: Timeout value (default: 15 seconds)
+# The route is saved to a file $1.route in the current directory.
+# $RC_GET_ROUTE has the value $TIMED_OUT if the traceroute gets killed
+# or it has the value $TRACE_COMPLETE if the trace completes normally.
+function get_route () {
+	local func_name=get_route
+   if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> Inside get_route (IP: $1  Timeout: ${2:-15})" >> $IP.logfile; fi
+   # This local function is what gets timed
+	function _get_route() {
+		local start_trace=`date +%Y\-%b\-%d\ %H\:%M\:%S\ %a`
+      case $OS_TYPE in
+         5.8*) # Solaris 8
+            $TRACE_ROUTE -I $1 &> $1.route
+            ;;
+
+         2.*) # Linux 2.x kernels
+            $TRACE_ROUTE -I $1 &> $1.route
+            ;;
+
+         1.5*) # Cygwin: Requires procps package installed
+            $TRACE_ROUTE $1 &> $1.route  # cygwin doesn't know -I argument because it uses windows tracert
+            ;;
+
+         *) # Unknown OS
+            echo "ERROR [$LINENO]$func_name> Unknown OS" | tee -a $IP.logfile
+            exit
+            ;;
+      esac
+
+		echo "traceroute started: $start_trace" >> $1.route
+		echo "traceroute ended:   `date +%Y\-%b\-%d\ %H\:%M\:%S\ %a`" >> $1.route
+		echo $TRACE_COMPLETE >| $1.ret_val
+      if [ $(($D & 0x1000)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> traceroute -I $1 completed." >> $IP.logfile; fi
+	}
+
+	# Initialize the file that gets tested to detect timeout condition
+   # The timed_function overwrites this with numerical return value when it succeeds
+	echo "TIMED_OUT" >| $1.ret_val
+
+   # Start the timed_function as a subshell in the background
+	(_get_route $1 ) &
+
+   # Allow up to $2 seconds for timed_function to complete but default to 15 seconds
+	local count=0
+	local max_count=${2:-15}
+	while [ $count -le $max_count ]; do
+		ret_val=`cat $1.ret_val`
+		if [ "$ret_val" != "TIMED_OUT" ]; then
+			rm -f $1.ret_val
+			RC_GET_ROUTE=$ret_val
+			return $ret_val
+		fi
+		let count=count+1
+      if [ $(($D & 0x1000)) -ne 0 ]; then printf "." >> $IP.logfile; fi
+		sleep 1
+	done
+   # Getting here means timed_function timed out. Kill the subshell $!
+	kill -9 $! &>/dev/null
+	echo "traceroute timed out at: `date +%Y\-%b\-%d\ %H\:%M\:%S\ %a`" >> $1.route
+   if [ $(($D & 0x1000)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> traceroute -I $1 timed out" >> $IP.logfile; fi
+	rm -f $1.ret_val
+	RC_GET_ROUTE=$TIMED_OUT
+	return $TIMED_OUT
+} # get_route
+
+
+
+#------------------------------------------------------------------------------
+# display_env
+# Function to display the values of environment variables
+function display_env () {
+	local func_name=display_env
+   if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> Inside display_env" >> $IP.logfile; fi
+	echo "----- CURRENT ENVIRONMENT VARIABLE VALUES -----------------" >> $IP.logfile
+	echo "PID:                  $PID" >> $IP.logfile
+	echo "HOST:                 $HOST" >> $IP.logfile
+	echo "CRONJOB:              $CRONJOB" >> $IP.logfile
+	echo "DELETE_STATS:         $DELETE_STATS" >> $IP.logfile
+	echo "DELETE_LOGS:          $DELETE_LOGS" >> $IP.logfile
+	echo "DROPPED_THRESHOLD:    $DROPPED_THRESHOLD" >> $IP.logfile
+	echo "ALERT_EMAIL:          $ALERT_EMAIL" >> $IP.logfile
+	echo "REPORT_EMAIL:       	 $REPORT_EMAIL" >> $IP.logfile
+	
+	echo "IP:                   $IP" >> $IP.logfile
+	echo "KILL_PT:              $KILL_PT" >> $IP.logfile
+	echo "PING_RATE:            $PING_RATE" >> $IP.logfile
+	echo "SHOW_STATS:           $SHOW_STATS" >> $IP.logfile
+	echo "TRACEROUTE_TIMEOUT:   $TRACEROUTE_TIMEOUT" >> $IP.logfile
+	echo "WORKING_DIR:          $WORKING_DIR" >> $IP.logfile
+	echo "WEB_PAGE_UPDATE_RATE: $WEB_PAGE_UPDATE_RATE" >> $IP.logfile
+	echo "HOURLY_STATS:         $HOURLY_STATS" >> $IP.logfile
+	echo "DASH_HOURLY:          $DASH_HOURLY" >> $IP.logfile
+	echo "-----------------------------------------------------------" >> $IP.logfile
+	return 0
+} # display_env
+
+
+#------------------------------------------------------------------------------
+# test_pid:  Function that returns ACTIVE if passed pid is active else DEAD
+# Pass PID to test in $1
+# It puts first 8 characters of the name of the program associated with the PID in $TEST_PID_PGM
+function test_pid () {
+	local func_name=test_pid
+   if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> Inside test_pid (\$1: $1)" >> $IP.logfile; fi
+  # 040224 jrl - The following approach to isolating the pid may seem less efficient 
+	# than doing it all in one line.  I was having intermittent problems with the "set" 
+	# declaring "no match" and bombing out of the script, even though the pid was 
+	# really there.  This approach, writing the ps output to a file and then using awk 
+	# to match everything and print field 5 seems to be reliable all the time.
+
+  # 040516 jrl - Seemed to be getting dead pid reported even though it was alive.  
+	# Put test in a while loop to try it three times before declaring it failed. See 
+	# if it makes a difference.
+
+	# 040518 jrl - On Solaris the CMD field returned by "ps -p pid" is only 8 chars 
+	# wide so it truncates the program name. Use ${TEST_PID_PGM:0:8} so that all names 
+	# returned by this program are the same length for testing later on.
+	
+  # 050317 jrl - Cygwin uses "oldps" which has different options and also has data in 
+	# different fields than Linux and Solaris.  This function now performs differently 
+	# based on OS.
+	COUNT=3
+	while [ $COUNT -ne 0 ]; do
+		case $OS_TYPE in
+			5.8*) # Solaris 8
+				echo `$PS -p $1` >| $$.test.pid
+				TEST_PID=`cat $$.test.pid | awk '/.*/{print $5}'`
+				TEST_PID_PGM=`cat $$.test.pid | awk '/.*/{print $8}'`
+				TEST_PID_PGM=${TEST_PID_PGM:0:8}
+				;;
+
+			2.*) # Linux 2.x kernels
+				echo `$PS -p $1` >| $$.test.pid
+				TEST_PID=`cat $$.test.pid | awk '/.*/{print $5}'`
+				TEST_PID_PGM=`cat $$.test.pid | awk '/.*/{print $8}'`
+				TEST_PID_PGM=${TEST_PID_PGM:0:8}
+				;;
+
+			1.5*) # Cygwin: Requires procps package installed
+				echo `$PS p $1` >| $$.test.pid
+				TEST_PID=`cat $$.test.pid | awk '/.*/{print $6}'`
+				TEST_PID_PGM=`cat $$.test.pid | awk '/.*/{print $11}'`
+				if [ "$TEST_PID" != "" ]; then
+					# Only do this if PID exists so that there will be a program name
+					TEST_PID_PGM=`basename $TEST_PID_PGM`
+				fi
+				TEST_PID_PGM=${TEST_PID_PGM:0:8}
+				;;
+
+			*) # Unknown OS
+				echo "ERROR [$LINENO]$func_name> Unknown OS" | tee -a $IP.logfile
+				exit
+				;;
+		esac
+
+		if [ $(($D & 0x40)) -ne 0 ]; then 
+			echo "[$LINENO]$func_name:$$> Contents of $$.test.pid" >> $IP.logfile
+			echo "`cat $$.test.pid`" >> $IP.logfile
+		fi
+		rm -f $$.test.pid
+		if [ ! -z $TEST_PID ] && [ $TEST_PID -eq $1 ]; then 
+			RC_TEST_PID=$ACTIVE
+			return $ACTIVE
+		fi
+		let COUNT=COUNT-1
+
+		# Wait a little bit to give the OS some time to clean up.  False negatives occur 
+		# at times.
+     # I'm hoping this will help.
+		sleep 2
+	done
+	RC_TEST_PID=$DEAD
+	return $DEAD
+} # test_pid
+
+
+#------------------------------------------------------------------------------
+# yes_or_no: Function that uses $1 as a prompt and returns $YES or $NO as an answer
+function yes_or_no () {
+local func_name=yes_or_no
+if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> Inside yes_or_no" >> $IP.logfile; fi
+while [ 1 -eq 1 ]; do
+	read -a response -p "$1 (yes/no): " 
+	case ${response[0]} in
+		yes) return $YES ;;
+		no) return $NO ;;
+		*) echo "Invalid choice: $response"; echo;;
+	esac
+done
+} # yes_or_no
+
+
+#------------------------------------------------------------------------------
+# rename_files: Function that renames all files to new name passed in $1
+function rename_files () {
+local func_name=rename_files
+if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> Inside rename_files" >> $IP.logfile; fi
+
+# Make sure $IP exists before trying to rename files
+if [ ! -e $IP.stats ]; then
+	echo "ERROR: Invalid \$IP entered on command line: $IP"
+	return -1
+fi
+
+# Make sure a new file name was passed
+if [ "$1" == "" ]; then
+	echo "ERROR: Missing IP or domain name"
+	return -1
+else
+	NEW_IP=$1
+fi
+
+# Only rename files if test isn't currently active.  Warn and exit if test is active."
+get_pt_pid
+test_pid "$RC_GET_PT_PID"
+if [ "$RC_TEST_PID" -eq $ACTIVE ]; then
+	echo "ERROR: $IP test still active"
+	echo "Use \"pt $IP -k\" to stop test."
+	echo "Be sure to modify crontab to reflect new name."
+else
+	# Rename all the files associated with this test
+	yes_or_no "Do you really want to rename $IP.filename to $NEW_IP.filename"
+	RC=$?
+	if [ "$RC" -eq $YES ]; then
+		if [ -e $IP.emails ]; then        mv $IP.emails         $NEW_IP.emails; fi
+		if [ -e $IP.heartbeat ]; then     mv $IP.heartbeat      $NEW_IP.heartbeat; fi
+		if [ -e $IP.logfile ]; then       mv $IP.logfile        $NEW_IP.logfile; fi
+		if [ -e $IP.logfile.1.zip ]; then mv $IP.logfile.1.zip  $NEW_IP.logfile.1.zip; fi
+		if [ -e $IP.logfile.2.zip ]; then mv $IP.logfile.2.zip  $NEW_IP.logfile.2.zip; fi
+		if [ -e $IP.logfile.3.zip ]; then mv $IP.logfile.3.zip  $NEW_IP.logfile.3.zip; fi
+		if [ -e $IP.logfile.4.zip ]; then mv $IP.logfile.4.zip  $NEW_IP.logfile.4.zip; fi
+		if [ -e $IP.route ]; then         mv $IP.route          $NEW_IP.route; fi
+	else
+		echo "Not renaming files"
+	fi
+fi
+} # rename_files
+
+
+#------------------------------------------------------------------------------
+# log_entry
+# Function that adds an entry to an existing logfile or creates a new one if the logfile doesn't exist
+function log_entry () {
+	local func_name=log_entry
+   if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> Inside log_entry" >> $IP.logfile; fi
+	if [ -e $IP.logfile ]; then
+		echo "--------------------  $SCRIPT_VER $SCRIPT_DATE ------------------------------------------" >> $IP.logfile
+	else
+		echo "--------------------  $SCRIPT_VER $SCRIPT_DATE ------------------------------------------" >| $IP.logfile
+	fi
+	cat $IP.stats >> $IP.logfile
+	echo "------------------------------------------------------------------------------" >> $IP.logfile
+} # log_entry
+
+
+#------------------------------------------------------------------------------
+# send_alert
+# $1 - The email subject, ie. Down or Up
+function send_alert () {
+	local func_name=send_alert
+  if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> Inside send_alert" >> $IP.logfile; fi
+	local email_time=`date +%Y\-%b\-%d\ %H\:%M\:%S\ %a`
+	echo "$email_time - $1: $HOST to $IP.  email sent to $ALERT_EMAIL.  Threshold: $DROPPED_THRESHOLD   Ping rate: $PING_RATE" >> $IP.logfile
+	cat $IP.stats >> $IP.logfile
+	get_route $IP $TRACEROUTE_TIMEOUT
+	cat $IP.route >> $IP.logfile
+	echo "$email_time - $1: $HOST to $IP.  Threshold: $DROPPED_THRESHOLD   Ping rate: $PING_RATE  email sent to $REPORT_EMAIL." >> $IP.emails
+	if [ "$1" = Down ]; then
+		echo "---------------------------------------- $SCRIPT_VER $SCRIPT_DATE ----- " >> $IP.emails
+	fi
+	if [ $(($D & 0x8)) -ne 0 ]; then 
+		echo "[$LINENO]$func_name:$$> $email_time - $1 $HOST to $IP.  alert email sent to $ALERT_EMAIL_.  Threshold: $DROPPED_THRESHOLD   Ping rate: $PING_RATE" >> $IP.logfile
+	fi
+	let EMAILS_SENT=EMAILS_SENT+1
+	write_pt_stats
+
+	# Create the text of the email that will be sent
+  # At the top of the email we want two lines giving the Up and Down times
+	echo "$email_time - $1" >| /tmp/$$.email
+	if [ "$1" = Down ]; then
+		echo "$LAST_EMAIL - Up" >> /tmp/$$.email
+	else
+		echo "$LAST_EMAIL - Down" >> /tmp/$$.email
+	fi
+	cat $IP.stats >> /tmp/$$.email
+	
+	echo "" >> /tmp/$$.email
+	echo "----- traceroute ---------------------------------------------------------------" >> /tmp/$$.email
+	cat $IP.route >> /tmp/$$.email
+	echo "" >> /tmp/$$.email
+	echo "----- email log ---------------------------------------------------------------" >> /tmp/$$.email
+	if [ -e $IP.emails ]; then
+		cat $IP.emails >> /tmp/$$.email
+	fi
+	cat /tmp/$$.email | $MAIL -s "pt: ${1}: $IP from $HOST" $ALERT_EMAIL
+	rm -f /tmp/$$.email
+	LAST_EMAIL=$email_time
+	write_pt_stats
+} # send_alert
+
+
+#------------------------------------------------------------------------------
+# check_valid_ip
+function check_valid_ip () {
+local func_name=check_valid_ip
+if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> Inside check_valid_ip" >> $IP.logfile; fi
+	if [ $IP = not_entered ]; then
+		echo "ERROR: IP required on command line.  Exiting"
+		exit
+	fi
+} # check_valid_ip
+
+
+
+#------------------------------------------------------------------------------
+# process_command_line
+function process_command_line () {
+local func_name=process_command_line
+if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> Inside process_command_line" >> $IP.logfile; fi
+while [ $# -ne 0 ]
+	do
+	case $1 in
+		-d) #debug mode
+		   # Command line -d overrides environment variable PT_DEBUG_FLAGS if it exists, which overrides debug_flags file if it exists
+			D=$2
+			if [ "$D" != "0" ] && [ $(($D & 0x80000000)) -eq 0 ]; then 
+				echo "[$LINENO]$func_name:$$> Debug flags changed to: $D at `date +%Y\-%b\-%d\ %H\:%M\:%S\ %a`" >> $IP.logfile
+			fi
+         if [ $(($D & 0x200000)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> In case -d" >> $IP.logfile; fi
+			shift ;;
+
+		-c) #cronjob processing
+			if [ $(($D & 0x2)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> In case -c" >> $IP.logfile; fi
+			CRONJOB=TRUE ;;
+
+		-ds) #delete statistics
+			if [ $(($D & 0x2)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> In case -ds" >> $IP.logfile; fi
+			DELETE_STATS=TRUE
+			check_valid_ip
+			yes_or_no "Do you really want to delete statistics? "
+			RC=$?
+			if [ "$RC" -eq $YES ]; then
+				echo "Deleting statistics"
+				rm -f $IP.stats
+				rm -f $IP.route
+			else
+				echo "Exiting without deleting statistics"
+			fi
+			exit
+			;;
+
+		-dl) #delete logs
+			if [ $(($D & 0x2)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> In case -dl" >> $IP.logfile; fi
+			DELETE_LOGS=TRUE
+			check_valid_ip
+			yes_or_no "Do you really want to delete logfiles? "
+			RC=$?
+			if [ "$RC" -eq $YES ]; then
+				echo "Deleting logfiles"
+				rm -f $IP.logfile
+				rm -f $IP.logfile.*.zip
+			else
+				echo "Exiting without deleting logfiles"
+			fi
+			exit
+			;;
+
+		-ea) #Alert email address
+			if [ $(($D & 0x2)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> In case -ea" >> $IP.logfile; fi
+			ALERT_EMAIL=$2
+			shift ;;
+
+		-er) #Report email address
+			if [ $(($D & 0x2)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> In case -er" >> $IP.logfile; fi
+			REPORT_EMAIL=$2
+			shift ;;
+
+		-h) #show help
+			if [ $(($D & 0x2)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> In case -h" >> $IP.logfile; fi
+			display_help
+			exit;;
+
+		-hd) #show debug help
+			if [ $(($D & 0x2)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> In case -hd" >> $IP.logfile; fi
+			display_debug_help
+			exit;;
+
+		-hourly) #Enable hourly tracking of ping statistics
+			if [ $(($D & 0x2)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> In case -hourly" >> $IP.logfile; fi
+			HOURLY_STATS=TRUE
+			DASH_HOURLY="-hourly"
+			;;
+
+		-k) #kill running instance
+			if [ $(($D & 0x2)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> In case -k" >> $IP.logfile; fi
+			KILL_PT=TRUE
+			check_valid_ip
+			get_pt_pid
+			yes_or_no "Do you really want to kill pid ${RC_GET_PT_PID}? "
+			RC=$?
+			if [ "$RC" -eq $YES ]; then
+				echo "Killing pid $RC_GET_PT_PID"
+				kill -9 $RC_GET_PT_PID
+				echo "Killing pid $RC_GET_PT_PID using -k" >> $IP.logfile
+			else
+				echo "Exiting without killing pid"
+			fi
+			exit
+			;;
+
+		-mv) # Rename files associated with this test
+			if [ $(($D & 0x2)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> In case -mv" >> $IP.logfile; fi
+			if [ "$2" == "" ]; then
+				echo "ERROR: You must provide name or IP to rename files."
+			else
+				rename_files $2
+			fi
+			exit;;
+
+		-r) #ping rate
+			if [ $(($D & 0x2)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> In case -r" >> $IP.logfile; fi
+			if [ "$2" -le 0 ]; then
+				display_help
+				echo "Error:  ping rate must be greater than zero"
+				exit
+			fi 
+			PING_RATE=$2
+			shift ;;
+
+		-t) #dropout email threshold
+			if [ $(($D & 0x2)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> In case -t" >> $IP.logfile; fi
+			if [ "$2" -le 0 ]; then
+				display_help
+				echo "Error:  email threshold must be greater than zero"
+				exit
+			fi 
+			DROPPED_THRESHOLD=$2
+			shift ;;
+
+		-tto) #traceroute time out value
+			if [ $(($D & 0x2)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> In case -tto" >> $IP.logfile; fi
+			if [ "$2" -lt 0 ]; then
+				display_help
+				echo "Error:  traceroute timeout value must be positive number"
+				exit
+			fi 
+			TRACEROUTE_TIMEOUT=$2
+			shift ;;
+
+		*) #IP address
+			if [ $(($D & 0x2)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> In case -*" >> $IP.logfile; fi
+			export IP=$1;;
+
+	esac
+
+   # Don't shift command line if processing at last argument
+	if [ $# -ne 0 ]; then
+		shift
+	fi
+done
+} # process_command_line
+
+
+
+#------------------------------------------------------------------------------
+# make_copy_script: Function to create a template $IP.copy script
+function make_copy_script () {
+local func_name=make_copy_script
+if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> Inside make_copy_script" >> $IP.logfile; fi
+cat << EOF >| $IP.copy
+#!/bin/bash
+#----- ping_test ($SCRIPT_VER $SCRIPT_DATE) --------------------------------------------
+# This is the $IP.copy script called by pt to update the website.  The name of the
+# html file is passed in \$1 so that it can be renamed as needed.  This might be
+# required if multiple sites are testing the same destination IP and all the
+# web pages are in the same directory on the webserver.
+#
+# The following environment variables are exported by pt and can be used in this script:
+#    HOST   Name of the host running the test
+#    IP     The IP address (or domain name) of the site being tested
+#    SCP    The full path to the scp program on the host where the test is running
+#
+# The copying method will vary depending on how to access the web server.  If it 
+# is on the same LAN as the machine running the test, then a simple "cp" command
+# might work.  If the webserver is on a remote machine then it may be necessary
+# to use "scp" to do the copy using already established public/private RSA key
+# access.  Examples of both are given below.  
+
+# LAN copy.  This simple line copies the file to the correct webserver directory.
+#cp -f \$1 /var/www/html/ping_test/\${IP}_from_\$HOST.html
+
+# SCP copy.  Use this line if transferring the file to a remote webserver.  The "-F" option
+# tells scp to use the named ssh configuration file.  Below are the settings that might
+# be in such a file.  See manpage for ssh_config(5) for complete descriptions:
+# 
+#   Host loader
+#   HostName linux-beast
+#   Port = 2222
+#   UserKnownHostsFile = /home/jlarsen/ssh_tunnel/linux-beast/known_hosts
+#   User = jlarsen
+#   IdentityFile = /home/jlarsen/ssh_tunnel/linux-beast/id_rsa.fhc-beast
+#
+# Using the settings above and the private key (with no pass phrase) the transfer can be
+# done by a cron job.
+#\$SCP -F /path/to/ssh/config/file \$1 loader:/path/to/webserver/directory/\${IP}_from_\$HOST.html 2>/dev/null
+EOF
+
+# Set execute permissions on the $IP.copy script
+chmod 755 $IP.copy
+
+} # make_copy_script
+
+
+
+
+#------------------------------------------------------------------------------
+# read_pt_stats.  Function that reads the $IP.stats file.
+function read_pt_stats () {
+local func_name=read_pt_stats
+if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> Inside read_pt_stats" >> $IP.logfile; fi
+
+# The size of the week array is defined here.  If changes are made to the weekly data
+# then the size must be adjusted accordingly.  The $COLUMNS defines how many fields
+# are in a week's data.  If a new column is added then that will need to change.
+ARRAY_TOP=63
+COLUMNS=9
+
+if [ ! -e $IP.stats ]; then
+	# If the statistics file doesn't exist then initialize variables with default values
+	PID=32767
+	TOTAL_PINGS=0
+	GOOD_PINGS=0
+	DROPPED_PINGS=0
+	PERCENT_LOSS=0
+	MIN_PING_TIME=10000.0
+	MIN_PING_DATE="YYYY-MMM-DD HH:MM:SS DDD"
+	AVG_PING_TIME=0
+	MAX_PING_TIME=0
+	MAX_PING_DATE="YYYY-MMM-DD HH:MM:SS DDD"
+	EMAILS_SENT=0
+	LAST_EMAIL="YYYY-MMM-DD HH:MM:SS DDD"
+	TEST_STARTED=`date +%Y\-%b\-%d\ %H\:%M\:%S\ %a`
+
+	# Save the newly initialized values to disk.
+	write_pt_stats
+else
+	# Initialize variable values from the statistics file
+	PID=`cat $IP.stats | awk '/^Ping Test:.*/{print $7}'`
+	TOTAL_PINGS=`cat $IP.stats | awk '/^Total pings.*/{print $3}'`
+	GOOD_PINGS=`cat $IP.stats | awk '/^Total good pings.*/{print $4}'`
+	DROPPED_PINGS=`cat $IP.stats | awk '/^Total dropped pings.*/{print $4}'`
+	MIN_PING_TIME=`cat $IP.stats | awk '/^Minimum ping time.*/{print $4}'`
+	MIN_PING_DATE=`cat $IP.stats | awk '/^Minimum ping time.*/{print $7,$8,$9}'`
+	MAX_PING_TIME=`cat $IP.stats | awk '/^Maximum ping time.*/{print $4}'`
+	MAX_PING_DATE=`cat $IP.stats | awk '/^Maximum ping time.*/{print $7,$8,$9}'`
+	EMAILS_SENT=`cat $IP.stats | awk '/^Total emails sent.*/{print $4}'`
+	LAST_EMAIL=`cat $IP.stats | awk '/^Last email sent.*/{print $4,$5,$6}'`
+	TEST_STARTED=`cat $IP.stats | awk '/^Test started.*/{print $3,$4,$5}'`
+fi
+} # read_pt_stats
+
+
+#------------------------------------------------------------------------------
+# write_pt_stats: Function that outputs the statistics to $IP.stats
+function write_pt_stats {
+local func_name=write_pt_stats
+if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> Inside write_pt_stats" >> $IP.logfile; fi
+
+# Use a temp file while building up the statistics.
+cat << EOF >| $IP.stats
+------------------------------------------------------- $SCRIPT_VER $SCRIPT_DATE -------------
+Ping Test:           $HOST to $IP (pid: $PID )
+Total pings:         $TOTAL_PINGS
+Total good pings:    $GOOD_PINGS
+Total dropped pings: $DROPPED_PINGS
+Percent loss:        $PERCENT_LOSS
+Minimum ping time:   $MIN_PING_TIME ms on $MIN_PING_DATE
+Average ping time:   $AVG_PING_TIME ms
+Maximum ping time:   $MAX_PING_TIME ms on $MAX_PING_DATE
+Total emails sent:   $EMAILS_SENT
+Last email sent:     $LAST_EMAIL
+Test started:        $TEST_STARTED
+Threshold:           $DROPPED_THRESHOLD dropped packets before email sent
+Ping rate:           $PING_RATE seconds between pings
+Alert email:         $ALERT_EMAIL
+Report email:        $REPORT_EMAIL
+======================================================================================
+EOF
+
+} # write_pt_stats
+
+
+#------------------------------------------------------------------------------
+# logfile
+function logfile () {
+local func_name=logfile
+if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> Inside logfile" >> $IP.logfile; fi
+# Compress logfile once a week and save up to $NUM_LOGS compressed logs
+CURRENT_DOW=`date +%a`
+CURRENT_HOUR=`date +%H`
+
+LOGDATE=`date +%Y%m%d`
+LASTLOGFILE=$IP.lastlog
+if [[ ! -f $LASTLOGFILE ]]; then
+    echo $LOGDATE > $LASTLOGFILE
+    LASTLOG="00000000"
+else
+    LASTLOG=$(cat $LASTLOGFILE)
+fi
+
+if [ "$CURRENT_DOW" = "Sun" ] && [ "$CURRENT_HOUR" = "00" ] && [ -e $IP.logfile ] && [[ $LASTLOG < $LOGDATE ]]; then
+	if [ -e $IP.logfile.1.zip ]; then
+		LOGFILE_MONTH=`$LS -n $IP.logfile.1.zip | awk '/.*/{print $6}'`
+		LOGFILE_DAY=`$LS -n $IP.logfile.1.zip | awk '/.*/{print $7}'`
+		CURRENT_MONTH=`date +%b`
+		CURRENT_DAY=`date +%d`
+		fix_number $CURRENT_DAY
+		CURRENT_DAY=$?
+
+		if [ "$CURRENT_DAY" != "$LOGFILE_DAY" ] || [ "$CURRENT_MONTH" != "$LOGFILE_MONTH" ]; then
+
+			# Rotate the old logfiles
+			local cnt_2=${NUM_LOGS:=4}
+			let local cnt_1=cnt_2-1
+			while [ $cnt_1 -gt 0 ]; do
+				if [ -e $IP.logfile.$cnt_1.zip ]; then
+					mv $IP.logfile.$cnt_1.zip $IP.logfile.$cnt_2.zip
+				fi
+				let cnt_1=cnt_1-1
+				let cnt_2=cnt_2-1
+			done
+
+			if [ -e $IP.logfile ]; then
+            # Append current stats and email log to the logfile
+				cat $IP.stats >> $IP.logfile
+				if [ -e $IP.emails ]; then
+					cat $IP.emails >> $IP.logfile
+				fi
+				if [ -x $ZIP_PGM ]; then
+					$ZIP_PGM $IP.logfile.1.zip $IP.logfile
+				else
+					# No zip program.  Copy file and rename it.
+					cp $IP.logfile $IP.logfile.1.zip 
+					touch $IP.logfile.1.zip 
+				fi
+				# Remove old logfile else entries just get appended to it
+				rm -f $IP.logfile
+            # Create a new logfile
+				log_entry
+			fi
+
+			# Send email with weekly stats
+			local email_time=`date +%Y\-%b\-%d\ %H\:%M\:%S\ %a`
+			echo "$email_time - $1 - Weekly summary" >| /tmp/$$.email
+			cat $IP.stats >> /tmp/$$.email
+			if [ -e $IP.emails ]; then
+				echo "" >> /tmp/$$.email
+				echo "----- email log ---------------------------------------------------------------" >> /tmp/$$.email
+				cat $IP.emails >> /tmp/$$.email
+			fi
+
+
+#
+#
+#	source of bogus emails!!!
+#
+#
+
+
+			cat /tmp/$$.email | $MAIL -s "pt: Weekly stats for $IP from $HOST" $REPORT_EMAIL
+			rm -f /tmp/$$.email
+		fi
+	else
+      # No $IP.logfile.1.zip so compress logfile and create new one
+		if [ -e $IP.logfile ]; then
+			cat $IP.stats >> $IP.logfile
+			
+			if [ -e $IP.emails ]; then
+				cat $IP.emails >> $IP.logfile
+			fi
+			if [ -x $ZIP_PGM ]; then
+				$ZIP_PGM $IP.logfile.1.zip $IP.logfile
+			else
+				# No zip program.  Copy file and rename it.
+				cp $IP.logfile $IP.logfile.1.zip 
+				touch $IP.logfile.1.zip 
+			fi
+			# Remove old logfile else entries just get appended to it
+			rm -f $IP.logfile
+			# Create a new logfile
+			log_entry
+		fi
+		# Send email with weekly stats
+		local email_time=`date +%Y\-%b\-%d\ %H\:%M\:%S\ %a`
+		echo "$email_time - $1 - Weekly summary" >| /tmp/$$.email
+		cat $IP.stats >> /tmp/$$.email
+		echo "" >> /tmp/$$.email
+		get_route $IP $TRACEROUTE_TIMEOUT
+		echo "----- traceroute ---------------------------------------------------------------" >> /tmp/$$.email
+		cat $IP.route >> /tmp/$$.email
+		if [ -e $IP.emails ]; then
+			echo "" >> /tmp/$$.email
+			echo "----- email log ---------------------------------------------------------------" >> /tmp/$$.email
+			cat $IP.emails >> /tmp/$$.email
+		fi
+		cat /tmp/$$.email | $MAIL -s "pt: Weekly stats for $IP from $HOST" $REPORT_EMAIL
+		rm -f /tmp/$$.email
+	fi
+    echo $LOGDATE > $LASTLOGFILE
+fi
+} # logfile
+
+
+
+#------------------------------------------------------------------------------
+# get_pt_pid: Function that returns the pid for "pt" in RC_GET_PT_PID
+function get_pt_pid () {
+local func_name=get_pt_pid
+if [ -e $IP.pid ]; then
+	RC_GET_PT_PID=`cat $IP.pid`
+else
+	RC_GET_PT_PID=12345
+fi
+if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> Inside get_pt_pid (pid: $RC_GET_PT_PID)" >> $IP.logfile; fi
+} # get_pt_pid
+
+
+#------------------------------------------------------------------------------
+# fix_number: Function that removes leading zero from seconds and minutes 
+# returned by `date +%M` and `date +%S`
+# $1 - Number to fix
+function fix_number () {
+	local func_name=fix_number
+   if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> Inside fix_number (number: $1)" >> $IP.logfile; fi
+
+	case $1 in
+		00) return 0;;
+		01) return 1;;
+		02) return 2;;
+		03) return 3;;
+		04) return 4;;
+		05) return 5;;
+		06) return 6;;
+		07) return 7;;
+		08) return 8;;
+		09) return 9;;
+		*)  return $1;;
+	esac
+} # fix_number
+
+#------------------------------------------------------------------------------
+# sleep_time: Function that adjusts sleep time based on script execution time
+# and the time it takes the OS to queue the task and wake it up.
+# The desired ping rate is set on the command line.  This function subtracts
+# all the overhead time from the sleep time so the ping rate is maintained.
+# This function gets called at the end of the while loop.
+function sleep_time () {
+	local func_name=sleep_time
+   if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> Inside sleep_time" >> $IP.logfile; fi
+
+   # Capture the current minute and second value
+	END_MINUTE=`date +%M`
+	END_SECOND=`date +%S`
+   WHILE_LOOP_END=`date +%Y\-%b\-%d\ %H\:%M\:%S\ %a`
+
+   # Need to remove leading zeros from the stored values so math will work 
+	fix_number $END_MINUTE
+	END_MINUTE=$?
+	fix_number $END_SECOND
+	END_SECOND=$?
+	fix_number $START_MINUTE
+	START_MINUTE=$?
+	fix_number $START_SECOND	
+	START_SECOND=$?
+
+	# Convert minutes to seconds and add to seconds
+	let START_TIME=START_MINUTE*60
+	let START_TIME=START_TIME+START_SECOND
+	let END_TIME=END_MINUTE*60
+	let END_TIME=END_TIME+END_SECOND
+
+	# If END_TIME is less than START_TIME then END_TIME is in a different
+	# hour and 3600 needs to be added to it so the math works.  This limits
+	# ping rate to be at least once an hour.  That should never be a problem
+	# because ping rate usually is in the seconds range.
+	if [ $END_TIME -lt $START_TIME ]; then
+		let END_TIME=END_TIME+3600
+	fi
+
+	# Now calculate how long it took the script to run
+	let SCRIPT_TIME=END_TIME-START_TIME
+	
+	# Calculate the time it took the OS to queue the job by subtracting the
+	# the predicted start time prediction from the actual start time.  If
+	# start time is less than predicted start time then need to add 3600
+	# to start time because it is in a different hour.
+	if [ $START_TIME -lt $PREDICTED_START ]; then
+		let START_TIME=START_TIME+3600
+	fi
+	let OS_TIME=START_TIME-PREDICTED_START
+
+	# Now add to this the time it took the script to run
+	let NON_SLEEP_TIME=SCRIPT_TIME+OS_TIME
+
+	# If NON_SLEEP_TIME is greater than PING_RATE then don't sleep at all.  If
+	# it is less than PING_RATE then subtract NON_SLEEP_TIME from PING_RATE and
+	# sleep for that long before waking up.
+	if [ $NON_SLEEP_TIME -lt $PING_RATE ]; then
+		let SLEEP_TIME=PING_RATE-NON_SLEEP_TIME
+		# Calculate the predicted start time so OS time can be calculated
+		let PREDICTED_START=END_TIME+SLEEP_TIME
+		
+      # sleep sometimes exits early for unknown reasons.  This happens a lot on cygwin 
+			# systems and occasionally on Linux.  It hasn't been observed on Solaris.  The 
+			# following lines detect, correct and log this event.
+
+      # Capture the current time as the number of seconds since 1980 or 1970 depending 
+			# on OS
+      CURRENT_TIME=`date +%s`
+
+      # Add the sleep time to it to know wakeup time
+      let WAKEUP_TIME=CURRENT_TIME+SLEEP_TIME
+
+      sleep $SLEEP_TIME
+
+      # Now check if the time actually elapsed or not 
+      CURRENT_TIME=`date +%s`
+
+      if [ $CURRENT_TIME -lt $WAKEUP_TIME ]; then
+
+         local count=0
+         local times=""
+         # Getting here means "sleep" ended early.  Sleep the difference.
+         # Stay in this while loop until the time has elapsed
+         while [ $CURRENT_TIME -lt $WAKEUP_TIME ]; do
+            let sleep_time=WAKEUP_TIME-CURRENT_TIME
+            sleep $sleep_time
+            CURRENT_TIME=`date +%s`
+            let count=count+1
+            times="$times `date +%H\:%M\:%S\ %a`"
+         done
+
+         # Log event
+         echo "`date +%Y\-%b\-%d\ %H\:%M\:%S\ %a` [$LINENO] $func_name: sleep woke up early $count times at: $times" >> $IP.logfile
+      fi
+
+	else
+		# Need to test if 3600 was added to END_TIME and remove it if it was
+		if [ $END_TIME -gt 3599 ]; then
+			let END_TIME=END_TIME-3600
+		fi
+		# Use the END_TIME as the PREDICTED_START since not going to sleep at all
+		PREDICTED_START=$END_TIME
+	fi
+
+	# Output runtime statistics if debugging is turned on
+	if [ $(($D & 0x2000)) -ne 0 ]; then 
+		echo "--------------------------------------------------" >> $IP.logfile
+		echo "START_TIME:       $START_TIME" >> $IP.logfile
+		echo "WHILE_LOOP_END:   $WHILE_LOOP_END" >> $IP.logfile
+		echo "WHILE_LOOP_START: $WHILE_LOOP_START" >> $IP.logfile
+		echo "PING_RATE:        $PING_RATE" >> $IP.logfile
+		echo "END_TIME:         $END_TIME" >> $IP.logfile
+		echo "OS_TIME:          $OS_TIME" >> $IP.logfile
+		echo "SCRIPT_TIME:      $SCRIPT_TIME" >> $IP.logfile
+		echo "NON_SLEEP_TIME:   $NON_SLEEP_TIME" >> $IP.logfile
+		echo "SLEEP_TIME:       $SLEEP_TIME" >> $IP.logfile
+		echo "PREDICTED_START:  $PREDICTED_START" >> $IP.logfile
+	fi
+} # sleep_time
+
+
+
+#------------------------------------------------------------------------------
+# set_working_dir: Function that sets the WORKING_DIR based on $0
+function set_working_dir () {
+# Configure working directory
+WORKING_DIR=`dirname $0`
+if [ "$WORKING_DIR" = "." ]; then
+	WORKING_DIR=`pwd`
+fi
+cd $WORKING_DIR
+} # set_working_dir
+
+
+#------------------------------------------------------------------------------
+# ping_ip: Function that pings the $IP.  It returns 0 if the ping was successful
+# and returns -1 if the ping failed.  If successful, the ping time is stored
+# in RC_PING_IP.  The type of processing performed is OS dependent.  The ping
+# time and ping result are written to $IP.logfile
+function ping_ip () {
+local func_name=ping_ip
+if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> Inside ping_ip" >> $IP.logfile; fi
+
+	# Capture the time the ping is performed
+	TIME_OF_PING=`date +%Y\-%b\-%d\ %H\:%M\:%S\ %a`
+
+	# Choose the correct ping command based on OS and ping the $IP
+	case $OS_TYPE in
+		5.8*) # Solaris 8
+			PING_RESULT=`$PING -s -n $IP 56 1`
+			;;
+
+      2.*) # Linux 2.x kernels
+			PING_RESULT=`$PING -q -c 1 $IP`
+			;;
+
+		1.5*) # Cygwin
+			PING_RESULT=`$PING -s -n $IP 56 1`
+			;;
+
+		*) # Unknown OS
+			echo "ERROR [$LINENO]$func_name> Unknown OS" | tee -a $IP.logfile
+         exit
+	esac
+
+   # Save ping time and ping results to the logfile and to STDOUT if debug enabled
+	OUTPUT="$TIME_OF_PING - $PING_RESULT"
+	echo $OUTPUT  >> $IP.logfile
+
+   # The ping command has different output base on OS type.  The ping times are in the
+   # form of 123/123/123 which is min/avg/max ping times.  The PING_RESULT is passed 
+   # through awk which isolates the field containing the times.  As can be seen below,
+   # ping for each OS puts the times in a different field.  Add appropriate cases for
+   # each OS supported.  The output of the awk script is then piped through sed which 
+   # replaces the forward slashes with spaces.  The output of sed is then piped through 
+   # awk which prints out the second field, which is the average time field.  This is
+   # stored in PING_TIME
+   case $OS_TYPE in
+      5.8*) # Solaris 8
+         PARSED_TIMES=`echo $PING_RESULT | awk '{ print $30 }'`
+         ;;
+
+      2.4.18*) # Mandrake Linux 8.2
+         PARSED_TIMES=`echo $PING_RESULT | awk '{ print $28 }'`
+         ;;
+
+      2.*) # Linux 2.x kernels
+         PARSED_TIMES=`echo $PING_RESULT | awk '{ print $26 }'`
+         ;;
+
+      1.5*) # Cygwin
+         PARSED_TIMES=`echo $PING_RESULT | awk '{ print $31 }'`
+         ;;
+   esac
+   PING_TIME=(`echo $PARSED_TIMES | sed -e 's/\// /g' | awk '{print $2}'`)
+   if [ $(($D & 0x1000)) -ne 0 ]; then 
+      echo "[$LINENO]$func_name> Value of \$PING_TIME extracted from \$PARSED_TIMES: $PING_TIME" >> $IP.logfile
+   fi
+
+   # If PING_TIME is empty then the ping failed.  Set PING_TIME to -1 and return
+   if [ -z $PING_TIME ]; then
+      PING_TIME=-1
+      return
+   fi
+
+   # If the ping was successful then a valid number will be in PING_TIME.
+   # If the ping failed then PING_TIME could have alpha characters in it.
+   # Set PING_TIME to -1 and return if there are alpha characters.
+   ALPHA_FOUND=`echo $PING_TIME | sed -n -e 's/.*[a-z,A-Z].*/alpha/p' `
+   if [ "$ALPHA_FOUND" == "alpha" ]; then
+      echo "ERROR [$LINENO]$func_name> Alpha characters in \$PING_TIME: $PING_TIME" >> $IP.logfile
+      PING_TIME=-1
+      return
+   fi
+   
+   # Getting here means a valid ping occurred.  The value is already in PING_TIME
+
+} # ping_ip
+
+
+#------------------------------------------------------------------------------
+# main
+function main () {
+local func_name=main
+if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> Inside main" >> $IP.logfile; fi
+
+setup_env
+
+# If no arguments are passed then output the help screen and exit
+if [ $# -eq 0 ]; then
+	display_help
+	exit
+fi
+
+process_command_line $*
+
+# There might have been -d on the command line so set debug level again
+set_debug_level
+
+# Show environment variable values if verbose level is high enough
+if [ $(($D & 0x10)) -ne 0 ]; then 
+	display_env
+fi
+
+# Check for IP on command line
+if [ $IP = not_entered ]; then
+	display_help
+	echo "ERROR: You must provide an IP address or domain name"
+	exit
+fi
+
+# Initialize environment variables by reading $IP.stats file
+read_pt_stats
+
+# cronjob processing must be tested for and executed first
+if [ $CRONJOB = TRUE ]; then
+
+   # Add entry to logfile or create new if $IP.logfile doesn't exist
+	log_entry
+	echo "`date +%Y\-%b\-%d\ %H\:%M\:%S\ %a`: cron processing using -c" >>$IP.logfile
+
+	# Get the PID of the running test
+	get_pt_pid
+
+	# Initialize a $IP.heartbeat file if it doesn't exist
+	if [ ! -e $IP.heartbeat ]; then
+		echo "RUNNING" >| $IP.heartbeat
+	fi
+
+  # Kill running process if $IP.heartbeat indicates the thread is stalled.  
+  # The cron job writes NOT_RUNNING to $IP.heartbeat.  The main while loop
+	# overwrites this with RUNNING.  The time between cron runs must be longer
+	# than the ping rate for this to work.
+	HEARTBEAT=`cat $IP.heartbeat`
+	if [ ! "$HEARTBEAT" == "RUNNING" ]; then
+		kill -9 $RC_GET_PT_PID
+	fi
+
+	# Check if $PID is still alive 
+	test_pid $RC_GET_PT_PID
+	if [ "$RC_TEST_PID" -eq $DEAD ]; then
+		# Send an email notifying that the test was down
+		echo "pt: cron: No active pid. Restarting $HOST to $IP" >| /tmp/$$.email
+		cat $IP.stats >> /tmp/$$.email
+		echo "" >> /tmp/$$.email
+		echo "----- traceroute ---------------------------------------------------------------" >> /tmp/$$.email
+		get_route $IP $TRACEROUTE_TIMEOUT
+		cat $IP.route >> /tmp/$$.email
+		if [ -e $IP.emails ]; then
+			echo "" >> /tmp/$$.email
+			echo "----- email log ---------------------------------------------------------------" >> /tmp/$$.email
+			cat $IP.emails >> /tmp/$$.email
+		fi
+		cat /tmp/$$.email | $MAIL -s "pt: cron: ${1}: $IP from $HOST - No active pid" $ALERT_EMAIL
+		rm -f /tmp/$$.email
+
+		# Restart the test
+		$0 $IP -d $D -r $PING_RATE -t $DROPPED_THRESHOLD -tto $TRACEROUTE_TIMEOUT $DASH_HOURLY -ea $ALERT_EMAIL &
+		exit
+	else
+		# Process still running. Do nothing and exit.
+		echo "NOT_RUNNING" >| $IP.heartbeat
+		exit
+	fi
+fi
+
+# These variables don't get changed by the user
+DROPPED_COUNTER=0
+DROPPED_EMAIL_SENT=FALSE
+
+# Exit if there is an active PID
+get_pt_pid
+test_pid $RC_GET_PT_PID
+if [ "$RC_TEST_PID" -eq $ACTIVE ]; then
+	echo "$HOST to ${IP}: Active pid $RC_GET_PT_PID found. Exiting" >> $IP.logfile
+	echo "$HOST to ${IP}: Active pid $RC_GET_PT_PID found"
+	echo "Use: pt $IP -k   to terminate"
+	exit
+else
+	# Since the stored PID isn't active, save the current PID as the active PID
+	PID=$$
+fi
+
+# Add entry to existing logfile or create new if $IP.logfile doesn't exist
+log_entry
+
+# Need to initialize PREDICTED_START with a valid value before entering while loop
+START_MINUTE=`date +%M`
+START_SECOND=`date +%S`
+fix_number $START_MINUTE
+START_MINUTE=$?
+fix_number $START_SECOND	
+START_SECOND=$?
+let PREDICTED_START=START_MINUTE*60
+let PREDICTED_START=PREDICTED_START+START_SECOND
+
+
+# Save pt's pid into a file.  The value of $$ is compared to this saved value each 
+# time through the main loop.  If another instance of pt somehow gets started, it 
+# will overwrite this file and other instances of pt will exit. This insures only 
+# one pt runs at a time.  Cygwin seems to have problems with this more than Solaris 
+# and Linux.
+echo $$ >| $IP.pid
+
+# Stay in this loop forever
+while [ 1 -eq 1 ]; do
+  if [ $(($D & 0x4)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> Inside main while loop" >> $IP.logfile; fi
+  WHILE_LOOP_START=`date +%Y\-%b\-%d\ %H\:%M\:%S\ %a`
+	START_MINUTE=`date +%M`
+	START_SECOND=`date +%S`
+
+   # Verify this process has same pid as in file $IP.stats.  Exit if different.
+   SAVED_PID=`cat $IP.pid`
+	if [[ $$ -ne $SAVED_PID ]]; then
+		echo "`date +%Y\-%b\-%d\ %H\:%M\:%S\ %a` - pt: current pid $$ doesn't equal saved pid ${SAVED_PID}.  Exiting." | tee -a $IP.logfile
+		exit
+	fi
+
+  # See if debug level has changed
+	set_debug_level
+
+	# Write to the heartbeat file so cron can tell the script is still alive
+	echo "RUNNING" >| $IP.heartbeat
+
+  # Check if it is time to compress and rotate logfile. Do this before any new 
+  # statistics are gathered and before "insert_week" is called. "logfile" sends a 
+  # weekly summary email when the week changes.
+	# Don't want a blank new week inserted at the top. This was happening before 
+	# moving "logfile" call to this point.
+	logfile
+
+  # Increment the total pings
+	let TOTAL_PINGS=TOTAL_PINGS+1
+
+  # Perform a ping 
+  ping_ip
+
+	# If ping test debug is turned on then force the value of PING_TIME
+	if [ $(($D & 0x80)) -ne 0 ]; then 
+		if [ ${toggle_cnt:=5} -eq 0 ]; then
+			toggle_cnt=5
+			if [ ${TEST_PING_STATUS:="ping_good"} = "ping_good" ]; then
+				echo "[$LINENO]$func_name:$$> Forcing \$PING_TIME to -1" >> $IP.logfile
+				TEST_PING_STATUS="ping_bad"
+				PING_TIME=-1
+			else
+				echo "[$LINENO]$func_name:$$> Using actual \$PING_TIME" >> $IP.logfile
+				TEST_PING_STATUS="ping_good"
+			fi
+		else
+			let toggle_cnt=toggle_cnt-1
+         if [ "$TEST_PING_STATUS" = "ping_bad" ]; then
+				PING_TIME=-1
+         fi
+		fi
+	fi
+
+	# Process the results of the ping
+	if [ "$PING_TIME" == "-1" ]; then
+		# Increment the bad ping counters
+		let DROPPED_PINGS=DROPPED_PINGS+1
+	else
+		# Increment the good ping counters
+		let GOOD_PINGS=GOOD_PINGS+1
+	fi
+
+	# Calculate the overall loss percentage using awk and put the result into 
+	# $PERCENT_LOSS
+	PERCENT_LOSS=(`echo "" | awk '{ printf "%5.3f", \
+		total_dropped/total_pings*100 }' \
+			total_dropped=$DROPPED_PINGS \
+			total_pings=$TOTAL_PINGS`)
+
+   # Send email after $THRESHOLD dropped pings in a row.  Send another email 
+	 # after $THRESHOLD successful pings.
+	if [ "$PING_TIME" == "-1" ]; then
+      # Getting here means the ping failed.
+      # Check if a "down" email needs to be sent
+		let DROPPED_COUNTER=DROPPED_COUNTER+1
+		if [ $DROPPED_COUNTER -ge $DROPPED_THRESHOLD ] && [ "$DROPPED_EMAIL_SENT" = "FALSE" ]; then
+			DROPPED_COUNTER=$DROPPED_THRESHOLD
+			DROPPED_EMAIL_SENT=TRUE
+			send_alert Down
+		fi
+	else
+    # Getting here means the ping was good.
+		let DROPPED_COUNTER=DROPPED_COUNTER-1
+
+    # Don't let dropped counter go below zero
+    if [ $DROPPED_COUNTER -lt 0 ]; then
+       DROPPED_COUNTER=0
+    fi
+
+      # If down email has been sent, clear counter, flag, and send an "up" email
+		if [ "$DROPPED_EMAIL_SENT" = "TRUE" ]; then
+			DROPPED_COUNTER=0
+			DROPPED_EMAIL_SENT=FALSE
+			send_alert Up
+    fi
+	fi
+
+	# Update and output the $IP.route file if debugging is turned on
+	if [ $(($D & 0x400)) -ne 0 ]; then 
+		get_route $IP $TRACEROUTE_TIMEOUT
+		echo "" >> $IP.logfile
+		echo "[$LINENO]$func_name:$$> Contents of $IP.route" >> $IP.logfile
+		cat $IP.route >> $IP.logfile
+	fi
+
+   # Calculate how long to sleep and sleep that amount
+	sleep_time
+
+   # Jump back and do it all over again
+done
+} # main
+
+# Set working directory, get version, set debug level, and then invoke the main function
+set_working_dir
+get_version
+set_debug_level
+main $*
