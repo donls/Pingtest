@@ -1,0 +1,4 @@
+Pingtest app
+
+Runs periodically and pings the servers of interest.
+If servers fail to respond, send email & SMS to admins.
