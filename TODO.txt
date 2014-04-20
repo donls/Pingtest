@@ -1,0 +1,29 @@
+Replace log banners with function (too wide to fit on neat listing now)
+Annotate >| redirection (overrides noclobber flag)
+Replace `uname -a | awk` with `uname -r` or `uname --kernel-release` (print kernel release)
+
+Note: local variable func_name looks like hack to simulate shell variable FUNCNAME[0]?
+
+Fix date stamp errors in stats file
+Note: stats file seem to always run in 'initial' mode, giving default values,
+making it totally useless.
+
+lvl@amber:~/pingtest
+$ cat *.stats
+------------------------------------------------------- v4.1 2012 -------------
+Ping Test:           amber to 206.197.251.254 (pid: 32767 )
+Total pings:         0
+Total good pings:    0
+Total dropped pings: 0
+Percent loss:        0
+Minimum ping time:   10000.0 ms on YYYY-MMM-DD HH:MM:SS DDD
+Average ping time:   0 ms
+Maximum ping time:   0 ms on YYYY-MMM-DD HH:MM:SS DDD
+Total emails sent:   0
+Last email sent:     YYYY-MMM-DD HH:MM:SS DDD
+Test started:        2014-Apr-20 10:36:35 Sun
+Threshold:           4 dropped packets before email sent
+Ping rate:           15 seconds between pings
+Alert email:         3149159900@message.ting.com,lvlammert@gmail.com,3145700809@message.ting.com
+Report email:        noc@omnitec.net
+======================================================================================
