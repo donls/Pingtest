@@ -218,7 +218,7 @@ function setup_env () {
 local func_name=setup_env
 if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> Inside setup_env" >> $IP.logfile; fi
 # Figure out which OS you're running on and setup program paths accordingly
-OS_TYPE=`uname -a | awk '{print $3}'`
+OS_TYPE=$(uname -r)
 case $OS_TYPE in
 	5.8*) # Solaris 8
 		;;
@@ -255,7 +255,7 @@ CRONJOB=FALSE
 DELETE_STATS=FALSE
 DELETE_LOGS=FALSE
 DROPPED_THRESHOLD=9
-IP=not_entered
+IP=IP_Required
 KILL_PT=FALSE
 PING_RATE=5
 SHOW_STATS=FALSE
@@ -582,8 +582,8 @@ function send_alert () {
 # check_valid_ip
 function check_valid_ip () {
 local func_name=check_valid_ip
-if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> Inside check_valid_ip" >> $IP.logfile; fi
-	if [ $IP = not_entered ]; then
+    if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> Inside check_valid_ip" >> $IP.logfile; fi
+    if [ $IP = IP_Required ]; then
 		echo "ERROR: IP required on command line.  Exiting"
 		exit
 	fi
@@ -1273,7 +1273,7 @@ if [ $(($D & 0x10)) -ne 0 ]; then
 fi
 
 # Check for IP on command line
-if [ $IP = not_entered ]; then
+if [ $IP = IP_Required ]; then
 	display_help
 	echo "ERROR: You must provide an IP address or domain name"
 	exit
