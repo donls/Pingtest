@@ -1,14 +1,22 @@
 #!/bin/bash 
+# pt (Ping Test) - Ping servers named on command line repeatedly at set interval
+# to detect when they become unavailable.
+# Script is initiated in crontab
+## Example crontab line:
+# 0,15,30,45 * * * * /home/lvl/pingtest/pt 206.197.251.254 -r 15 -t 4  -c
+# Event loop at end of main() runs repeatedly with timing check to preserve interval
+# If started again (as happens every 15 minutes), new instance replaces old
+# Process can be killed by running it with -k switch
 
 # Temporarily run verbosely with '-xv' for 
 # debugging purposes -JM
 
-# $Id: pt,v 3.7 2005/08/28 22:18:21 jlarsen Exp $
 #Copyright: 2004 and 2005 by John R Larsen
 #Modified to run as a link test script by Omnitec Corporation
 # Copyright 2009, Omnitec Corporation - BSD License
 # 2010 05 23 - added test to assure that log rotation
 # does not happen more than once a day
+# 2014 04 20 - DEE - Removed RCS tags (no longer relevant with Git)
 
 # Description: bash script to ping an IP forever and redirect output to a file.
 # It can be run as a cron job or from the shell.
@@ -73,9 +81,11 @@ EOF
 
 #-------------------------------------------------------------------------------
 # get_version.  Function that parses script version and date info from the RCS Id line.
+# No longer works after transition from RCS to Git
+# TODO: adjust this function to use Git to recover script hash and mod date
 function get_version () {
-   SCRIPT_VER="v`echo '$Id: pt,v 4.1 2019 Exp $' | awk '{print $3}'`"
-   SCRIPT_DATE="`echo '$Id: pt,v 4.1 2012 Exp $' | awk '{print $4}'`"
+   SCRIPT_VER="TODO: Check version with Git"
+   SCRIPT_DATE="TODO: Check mod date with Git"
 } # get_version
 
 
