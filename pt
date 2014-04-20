@@ -44,8 +44,7 @@ REPORT_EMAIL=noc@omnitec.net
 #------------------------------------------------------------------------------
 # display_help: Function to display the help screen
 function display_help () {
-local func_name=display_help
-if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> Inside display_help" >> $IP.logfile; fi
+if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$FUNCNAME:$$> Inside $FUNCNAME" >> $IP.logfile; fi
 cat << EOF
 $(banner " ping_test ($(show_version))" )
 
@@ -90,7 +89,8 @@ function get_version () {
 } # get_version
 
 function show_version () {
-    echo -n "$SCRIPT_VER $SCRIPT_DATE"
+    # echo -n "$SCRIPT_VER $SCRIPT_DATE"
+    echo -n "TODO: Check version & date with Git"
 }
 
 # If argument is passed, print argument with surrounding dashes
@@ -108,8 +108,7 @@ function banner () {
 #------------------------------------------------------------------------------
 # display_debug_help:  Function to display debug help.
 function display_debug_help () {
-local func_name=display_debug_help
-if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> Inside display_debug_help" >> $IP.logfile; fi
+if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$FUNCNAME:$$> Inside $FUNCNAME" >> $IP.logfile; fi
 cat << EOF | more
 $(banner " Debug Help ($(show_version))" )
 Debug is enabled in one of three ways in decending order of precedence: 
@@ -126,7 +125,7 @@ going on then tail the logfile with this command: "tail -f $IP.logfile".
 
 Each debug line is qualified with a construct like the following:
 
-if [ \$((\$D & 0x1)) -ne 0 ]; then echo "[\$LINENO]\$func_name:\$\$> Debug message or action";fi
+if [ \$((\$D & 0x1)) -ne 0 ]; then echo "[\$LINENO]\$FUNCNAME:\$\$> Debug message or action";fi
 
 The expression on the left of -ne is a bash construct.  The $((expr)) gets
 evaluated and returns a value.  The expression I'm using is "$D & 0xNN".  The
@@ -169,7 +168,6 @@ EOF
 # set_debug_level:  Function that sets the $D variable based on a file, an
 #environment variable, or a command line variable. See display_debug_help.
 function set_debug_level () {
-local func_name=set_debug_level
 
 # Note: Command line -d overrides environment variable PT_DEBUG_FLAGS if it exists, which overrides debug_flags file if it exists
 # Check one time if PT_DEBUG_FLAGS env variable exists and use it if it does
@@ -177,7 +175,7 @@ if [ "${ENV_VAR_TESTED:=FALSE}" = "FALSE" ]; then
 	ENV_VAR_TESTED=TRUE
 	export D=${PT_DEBUG_FLAGS:-0}
 	if [ "$IP" != "" ] && [ "$D" != "0" ] && [ $(($D & 0x80000000)) -eq 0 ]; then 
-		echo "[$LINENO]$$>: set_debug_level: Debug flags changed to: $D at `date +%Y\-%b\-%d\ %H\:%M\:%S\ %a`" >> $IP.logfile
+		echo "[$LINENO]$$>: $FUNCNAME: Debug flags changed to: $D at `date +%Y\-%b\-%d\ %H\:%M\:%S\ %a`" >> $IP.logfile
 	fi
 fi
 
@@ -190,7 +188,7 @@ if [ -e debug_flags ]; then
 			# Getting here means $D was zero and the debug_flags contents should be used instead since env variable doesn't exist or has value of 0
 			D=$DEBUG_FLAGS_FILE
 			if [ "$IP" != "" ] && [ "$D" != "0" ] && [ $(($D & 0x80000000)) -eq 0 ]; then 
-				echo "[$LINENO]$$>: set_debug_level: Debug flags changed to: $D at `date +%Y\-%b\-%d\ %H\:%M\:%S\ %a`" >> $IP.logfile
+				echo "[$LINENO]$$>: $FUNCNAME: Debug flags changed to: $D at `date +%Y\-%b\-%d\ %H\:%M\:%S\ %a`" >> $IP.logfile
 			fi
 		fi
 	else
@@ -200,14 +198,14 @@ if [ -e debug_flags ]; then
 			DEBUG_FLAGS_FILE=$NEW_DEBUG_FLAGS_FILE
 			D=$DEBUG_FLAGS_FILE
 			if [ "$IP" != "" ] && [ $(($D & 0x80000000)) -eq 0 ]; then
-				echo "[$LINENO]$$>: set_debug_level: Debug flags changed to: $D at `date +%Y\-%b\-%d\ %H\:%M\:%S\ %a`" >> $IP.logfile
+				echo "[$LINENO]$$>: $FUNCNAME: Debug flags changed to: $D at `date +%Y\-%b\-%d\ %H\:%M\:%S\ %a`" >> $IP.logfile
 			fi
 		fi
 	fi
 fi
 
 # This line is at the end because $D is set in this function
-if [ "$IP" != "" ] && [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> Inside set_debug_level (Flags: $D)" >> $IP.logfile; fi
+if [ "$IP" != "" ] && [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$FUNCNAME:$$> Inside $FUNCNAME (Flags: $D)" >> $IP.logfile; fi
 } # set_debug_level
 
 
@@ -215,8 +213,7 @@ if [ "$IP" != "" ] && [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$func_name:$$
 # setup_env.  Function that determines what OS the script is running on and
 # setups environment variables accordingly.
 function setup_env () {
-local func_name=setup_env
-if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> Inside setup_env" >> $IP.logfile; fi
+if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$FUNCNAME:$$> Inside $FUNCNAME" >> $IP.logfile; fi
 # Figure out which OS you're running on and setup program paths accordingly
 OS_TYPE=$(uname -r)
 case $OS_TYPE in
@@ -242,7 +239,7 @@ case $OS_TYPE in
 		;;
 
 	*) # Unknown OS
-		echo "ERROR [$LINENO]$func_name> Unknown OS" | tee -a $IP.logfile
+		echo "ERROR [$LINENO]$FUNCNAME> Unknown OS" | tee -a $IP.logfile
 		exit
 		;;
 esac
@@ -280,8 +277,7 @@ TRACEROUTE_TIMEOUT=15
 # $RC_GET_ROUTE has the value $TIMED_OUT if the traceroute gets killed
 # or it has the value $TRACE_COMPLETE if the trace completes normally.
 function get_route () {
-	local func_name=get_route
-   if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> Inside get_route (IP: $1  Timeout: ${2:-15})" >> $IP.logfile; fi
+   if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$FUNCNAME:$$> Inside $FUNCNAME (IP: $1  Timeout: ${2:-15})" >> $IP.logfile; fi
    # This local function is what gets timed
 	function _get_route() {
 		local start_trace=`date +%Y\-%b\-%d\ %H\:%M\:%S\ %a`
@@ -299,7 +295,7 @@ function get_route () {
             ;;
 
          *) # Unknown OS
-            echo "ERROR [$LINENO]$func_name> Unknown OS" | tee -a $IP.logfile
+            echo "ERROR [$LINENO]$FUNCNAME> Unknown OS" | tee -a $IP.logfile
             exit
             ;;
       esac
@@ -307,7 +303,7 @@ function get_route () {
 		echo "traceroute started: $start_trace" >> $1.route
 		echo "traceroute ended:   `date +%Y\-%b\-%d\ %H\:%M\:%S\ %a`" >> $1.route
 		echo $TRACE_COMPLETE >| $1.ret_val
-      if [ $(($D & 0x1000)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> traceroute -I $1 completed." >> $IP.logfile; fi
+      if [ $(($D & 0x1000)) -ne 0 ]; then echo "[$LINENO]$FUNCNAME:$$> traceroute -I $1 completed." >> $IP.logfile; fi
 	}
 
 	# Initialize the file that gets tested to detect timeout condition
@@ -334,7 +330,7 @@ function get_route () {
    # Getting here means timed_function timed out. Kill the subshell $!
 	kill -9 $! &>/dev/null
 	echo "traceroute timed out at: `date +%Y\-%b\-%d\ %H\:%M\:%S\ %a`" >> $1.route
-   if [ $(($D & 0x1000)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> traceroute -I $1 timed out" >> $IP.logfile; fi
+   if [ $(($D & 0x1000)) -ne 0 ]; then echo "[$LINENO]$FUNCNAME:$$> traceroute -I $1 timed out" >> $IP.logfile; fi
 	rm -f $1.ret_val
 	RC_GET_ROUTE=$TIMED_OUT
 	return $TIMED_OUT
@@ -346,8 +342,7 @@ function get_route () {
 # display_env
 # Function to display the values of environment variables
 function display_env () {
-	local func_name=display_env
-   if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> Inside display_env" >> $IP.logfile; fi
+   if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$FUNCNAME:$$> Inside $FUNCNAME" >> $IP.logfile; fi
 	echo "$(banner ' CURRENT ENVIRONMENT VARIABLE VALUES ')" >> $IP.logfile
 	echo "PID:                  $PID" >> $IP.logfile
 	echo "HOST:                 $HOST" >> $IP.logfile
@@ -377,8 +372,7 @@ function display_env () {
 # Pass PID to test in $1
 # It puts first 8 characters of the name of the program associated with the PID in $TEST_PID_PGM
 function test_pid () {
-	local func_name=test_pid
-   if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> Inside test_pid (\$1: $1)" >> $IP.logfile; fi
+   if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$FUNCNAME:$$> Inside $FUNCNAME (\$1: $1)" >> $IP.logfile; fi
   # 040224 jrl - The following approach to isolating the pid may seem less efficient 
 	# than doing it all in one line.  I was having intermittent problems with the "set" 
 	# declaring "no match" and bombing out of the script, even though the pid was 
@@ -425,13 +419,13 @@ function test_pid () {
 				;;
 
 			*) # Unknown OS
-				echo "ERROR [$LINENO]$func_name> Unknown OS" | tee -a $IP.logfile
+				echo "ERROR [$LINENO]$FUNCNAME> Unknown OS" | tee -a $IP.logfile
 				exit
 				;;
 		esac
 
 		if [ $(($D & 0x40)) -ne 0 ]; then 
-			echo "[$LINENO]$func_name:$$> Contents of $$.test.pid" >> $IP.logfile
+			echo "[$LINENO]$FUNCNAME:$$> Contents of $$.test.pid" >> $IP.logfile
 			echo "`cat $$.test.pid`" >> $IP.logfile
 		fi
 		rm -f $$.test.pid
@@ -454,8 +448,7 @@ function test_pid () {
 #------------------------------------------------------------------------------
 # yes_or_no: Function that uses $1 as a prompt and returns $YES or $NO as an answer
 function yes_or_no () {
-local func_name=yes_or_no
-if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> Inside yes_or_no" >> $IP.logfile; fi
+if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$FUNCNAME:$$> Inside $FUNCNAME" >> $IP.logfile; fi
 while [ 1 -eq 1 ]; do
 	read -a response -p "$1 (yes/no): " 
 	case ${response[0]} in
@@ -470,8 +463,7 @@ done
 #------------------------------------------------------------------------------
 # rename_files: Function that renames all files to new name passed in $1
 function rename_files () {
-local func_name=rename_files
-if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> Inside rename_files" >> $IP.logfile; fi
+if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$FUNCNAME:$$> Inside $FUNCNAME" >> $IP.logfile; fi
 
 # Make sure $IP exists before trying to rename files
 if [ ! -e $IP.stats ]; then
@@ -518,8 +510,7 @@ fi
 # log_entry
 # Function that adds an entry to an existing logfile or creates a new one if the logfile doesn't exist
 function log_entry () {
-	local func_name=log_entry
-   if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> Inside log_entry" >> $IP.logfile; fi
+   if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$FUNCNAME:$$> Inside $FUNCNAME" >> $IP.logfile; fi
 	if [ -e $IP.logfile ]; then
 		echo "$(banner $(show_version) )" >> $IP.logfile
 		
@@ -536,8 +527,7 @@ function log_entry () {
 # send_alert
 # $1 - The email subject, ie. Down or Up
 function send_alert () {
-	local func_name=send_alert
-  if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> Inside send_alert" >> $IP.logfile; fi
+  if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$FUNCNAME:$$> Inside $FUNCNAME" >> $IP.logfile; fi
 	local email_time=`date +%Y\-%b\-%d\ %H\:%M\:%S\ %a`
 	echo "$email_time - $1: $HOST to $IP.  email sent to $ALERT_EMAIL.  Threshold: $DROPPED_THRESHOLD   Ping rate: $PING_RATE" >> $IP.logfile
 	cat $IP.stats >> $IP.logfile
@@ -548,7 +538,7 @@ function send_alert () {
 		echo "$(banner $(show_version) )" >> $IP.emails
 	fi
 	if [ $(($D & 0x8)) -ne 0 ]; then 
-		echo "[$LINENO]$func_name:$$> $email_time - $1 $HOST to $IP.  alert email sent to $ALERT_EMAIL_.  Threshold: $DROPPED_THRESHOLD   Ping rate: $PING_RATE" >> $IP.logfile
+		echo "[$LINENO]$FUNCNAME:$$> $email_time - $1 $HOST to $IP.  alert email sent to $ALERT_EMAIL_.  Threshold: $DROPPED_THRESHOLD   Ping rate: $PING_RATE" >> $IP.logfile
 	fi
 	let EMAILS_SENT=EMAILS_SENT+1
 	write_pt_stats
@@ -581,8 +571,7 @@ function send_alert () {
 #------------------------------------------------------------------------------
 # check_valid_ip
 function check_valid_ip () {
-local func_name=check_valid_ip
-    if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> Inside check_valid_ip" >> $IP.logfile; fi
+    if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$FUNCNAME:$$> Inside $FUNCNAME" >> $IP.logfile; fi
     if [ $IP = IP_Required ]; then
 		echo "ERROR: IP required on command line.  Exiting"
 		exit
@@ -594,8 +583,7 @@ local func_name=check_valid_ip
 #------------------------------------------------------------------------------
 # process_command_line
 function process_command_line () {
-local func_name=process_command_line
-if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> Inside process_command_line" >> $IP.logfile; fi
+if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$FUNCNAME:$$> Inside $FUNCNAME" >> $IP.logfile; fi
 while [ $# -ne 0 ]
 	do
 	case $1 in
@@ -603,17 +591,17 @@ while [ $# -ne 0 ]
 		   # Command line -d overrides environment variable PT_DEBUG_FLAGS if it exists, which overrides debug_flags file if it exists
 			D=$2
 			if [ "$D" != "0" ] && [ $(($D & 0x80000000)) -eq 0 ]; then 
-				echo "[$LINENO]$func_name:$$> Debug flags changed to: $D at `date +%Y\-%b\-%d\ %H\:%M\:%S\ %a`" >> $IP.logfile
+				echo "[$LINENO]$FUNCNAME:$$> Debug flags changed to: $D at `date +%Y\-%b\-%d\ %H\:%M\:%S\ %a`" >> $IP.logfile
 			fi
-         if [ $(($D & 0x200000)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> In case -d" >> $IP.logfile; fi
+         if [ $(($D & 0x200000)) -ne 0 ]; then echo "[$LINENO]$FUNCNAME:$$> In case -d" >> $IP.logfile; fi
 			shift ;;
 
 		-c) #cronjob processing
-			if [ $(($D & 0x2)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> In case -c" >> $IP.logfile; fi
+			if [ $(($D & 0x2)) -ne 0 ]; then echo "[$LINENO]$FUNCNAME:$$> In case -c" >> $IP.logfile; fi
 			CRONJOB=TRUE ;;
 
 		-ds) #delete statistics
-			if [ $(($D & 0x2)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> In case -ds" >> $IP.logfile; fi
+			if [ $(($D & 0x2)) -ne 0 ]; then echo "[$LINENO]$FUNCNAME:$$> In case -ds" >> $IP.logfile; fi
 			DELETE_STATS=TRUE
 			check_valid_ip
 			yes_or_no "Do you really want to delete statistics? "
@@ -629,7 +617,7 @@ while [ $# -ne 0 ]
 			;;
 
 		-dl) #delete logs
-			if [ $(($D & 0x2)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> In case -dl" >> $IP.logfile; fi
+			if [ $(($D & 0x2)) -ne 0 ]; then echo "[$LINENO]$FUNCNAME:$$> In case -dl" >> $IP.logfile; fi
 			DELETE_LOGS=TRUE
 			check_valid_ip
 			yes_or_no "Do you really want to delete logfiles? "
@@ -645,33 +633,33 @@ while [ $# -ne 0 ]
 			;;
 
 		-ea) #Alert email address
-			if [ $(($D & 0x2)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> In case -ea" >> $IP.logfile; fi
+			if [ $(($D & 0x2)) -ne 0 ]; then echo "[$LINENO]$FUNCNAME:$$> In case -ea" >> $IP.logfile; fi
 			ALERT_EMAIL=$2
 			shift ;;
 
 		-er) #Report email address
-			if [ $(($D & 0x2)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> In case -er" >> $IP.logfile; fi
+			if [ $(($D & 0x2)) -ne 0 ]; then echo "[$LINENO]$FUNCNAME:$$> In case -er" >> $IP.logfile; fi
 			REPORT_EMAIL=$2
 			shift ;;
 
 		-h) #show help
-			if [ $(($D & 0x2)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> In case -h" >> $IP.logfile; fi
+			if [ $(($D & 0x2)) -ne 0 ]; then echo "[$LINENO]$FUNCNAME:$$> In case -h" >> $IP.logfile; fi
 			display_help
 			exit;;
 
 		-hd) #show debug help
-			if [ $(($D & 0x2)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> In case -hd" >> $IP.logfile; fi
+			if [ $(($D & 0x2)) -ne 0 ]; then echo "[$LINENO]$FUNCNAME:$$> In case -hd" >> $IP.logfile; fi
 			display_debug_help
 			exit;;
 
 		-hourly) #Enable hourly tracking of ping statistics
-			if [ $(($D & 0x2)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> In case -hourly" >> $IP.logfile; fi
+			if [ $(($D & 0x2)) -ne 0 ]; then echo "[$LINENO]$FUNCNAME:$$> In case -hourly" >> $IP.logfile; fi
 			HOURLY_STATS=TRUE
 			DASH_HOURLY="-hourly"
 			;;
 
 		-k) #kill running instance
-			if [ $(($D & 0x2)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> In case -k" >> $IP.logfile; fi
+			if [ $(($D & 0x2)) -ne 0 ]; then echo "[$LINENO]$FUNCNAME:$$> In case -k" >> $IP.logfile; fi
 			KILL_PT=TRUE
 			check_valid_ip
 			get_pt_pid
@@ -688,7 +676,7 @@ while [ $# -ne 0 ]
 			;;
 
 		-mv) # Rename files associated with this test
-			if [ $(($D & 0x2)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> In case -mv" >> $IP.logfile; fi
+			if [ $(($D & 0x2)) -ne 0 ]; then echo "[$LINENO]$FUNCNAME:$$> In case -mv" >> $IP.logfile; fi
 			if [ "$2" == "" ]; then
 				echo "ERROR: You must provide name or IP to rename files."
 			else
@@ -697,7 +685,7 @@ while [ $# -ne 0 ]
 			exit;;
 
 		-r) #ping rate
-			if [ $(($D & 0x2)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> In case -r" >> $IP.logfile; fi
+			if [ $(($D & 0x2)) -ne 0 ]; then echo "[$LINENO]$FUNCNAME:$$> In case -r" >> $IP.logfile; fi
 			if [ "$2" -le 0 ]; then
 				display_help
 				echo "Error:  ping rate must be greater than zero"
@@ -707,7 +695,7 @@ while [ $# -ne 0 ]
 			shift ;;
 
 		-t) #dropout email threshold
-			if [ $(($D & 0x2)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> In case -t" >> $IP.logfile; fi
+			if [ $(($D & 0x2)) -ne 0 ]; then echo "[$LINENO]$FUNCNAME:$$> In case -t" >> $IP.logfile; fi
 			if [ "$2" -le 0 ]; then
 				display_help
 				echo "Error:  email threshold must be greater than zero"
@@ -717,7 +705,7 @@ while [ $# -ne 0 ]
 			shift ;;
 
 		-tto) #traceroute time out value
-			if [ $(($D & 0x2)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> In case -tto" >> $IP.logfile; fi
+			if [ $(($D & 0x2)) -ne 0 ]; then echo "[$LINENO]$FUNCNAME:$$> In case -tto" >> $IP.logfile; fi
 			if [ "$2" -lt 0 ]; then
 				display_help
 				echo "Error:  traceroute timeout value must be positive number"
@@ -727,7 +715,7 @@ while [ $# -ne 0 ]
 			shift ;;
 
 		*) #IP address
-			if [ $(($D & 0x2)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> In case -*" >> $IP.logfile; fi
+			if [ $(($D & 0x2)) -ne 0 ]; then echo "[$LINENO]$FUNCNAME:$$> In case -*" >> $IP.logfile; fi
 			export IP=$1;;
 
 	esac
@@ -744,8 +732,7 @@ done
 #------------------------------------------------------------------------------
 # make_copy_script: Function to create a template $IP.copy script
 function make_copy_script () {
-local func_name=make_copy_script
-if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> Inside make_copy_script" >> $IP.logfile; fi
+    if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$FUNCNAME:$$> Inside $FUNCNAME" >> $IP.logfile; fi
 cat << EOF >| $IP.copy
 #!/bin/bash
 # $(banner " ping_test $(show_version) " )
@@ -795,8 +782,7 @@ chmod 755 $IP.copy
 #------------------------------------------------------------------------------
 # read_pt_stats.  Function that reads the $IP.stats file.
 function read_pt_stats () {
-local func_name=read_pt_stats
-if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> Inside read_pt_stats" >> $IP.logfile; fi
+if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$FUNCNAME:$$> Inside $FUNCNAME" >> $IP.logfile; fi
 
 # The size of the week array is defined here.  If changes are made to the weekly data
 # then the size must be adjusted accordingly.  The $COLUMNS defines how many fields
@@ -842,8 +828,7 @@ fi
 #------------------------------------------------------------------------------
 # write_pt_stats: Function that outputs the statistics to $IP.stats
 function write_pt_stats {
-local func_name=write_pt_stats
-if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> Inside write_pt_stats" >> $IP.logfile; fi
+if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$FUNCNAME:$$> Inside $FUNCNAME" >> $IP.logfile; fi
 
 # Use a temp file while building up the statistics.
 cat << EOF >| $IP.stats
@@ -872,8 +857,7 @@ EOF
 #------------------------------------------------------------------------------
 # logfile
 function logfile () {
-local func_name=logfile
-if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> Inside logfile" >> $IP.logfile; fi
+if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$FUNCNAME:$$> Inside $FUNCNAME" >> $IP.logfile; fi
 # Compress logfile once a week and save up to $NUM_LOGS compressed logs
 CURRENT_DOW=`date +%a`
 CURRENT_HOUR=`date +%H`
@@ -994,13 +978,12 @@ fi
 #------------------------------------------------------------------------------
 # get_pt_pid: Function that returns the pid for "pt" in RC_GET_PT_PID
 function get_pt_pid () {
-local func_name=get_pt_pid
 if [ -e $IP.pid ]; then
 	RC_GET_PT_PID=`cat $IP.pid`
 else
 	RC_GET_PT_PID=12345
 fi
-if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> Inside get_pt_pid (pid: $RC_GET_PT_PID)" >> $IP.logfile; fi
+if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$FUNCNAME:$$> Inside $FUNCNAME (pid: $RC_GET_PT_PID)" >> $IP.logfile; fi
 } # get_pt_pid
 
 
@@ -1009,8 +992,7 @@ if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> Inside get_pt_pid
 # returned by `date +%M` and `date +%S`
 # $1 - Number to fix
 function fix_number () {
-	local func_name=fix_number
-   if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> Inside fix_number (number: $1)" >> $IP.logfile; fi
+   if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$FUNCNAME:$$> Inside $FUNCNAME (number: $1)" >> $IP.logfile; fi
 
 	case $1 in
 		00) return 0;;
@@ -1034,8 +1016,7 @@ function fix_number () {
 # all the overhead time from the sleep time so the ping rate is maintained.
 # This function gets called at the end of the while loop.
 function sleep_time () {
-	local func_name=sleep_time
-   if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> Inside sleep_time" >> $IP.logfile; fi
+   if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$FUNCNAME:$$> Inside $FUNCNAME" >> $IP.logfile; fi
 
    # Capture the current minute and second value
 	END_MINUTE=`date +%M`
@@ -1120,7 +1101,7 @@ function sleep_time () {
          done
 
          # Log event
-         echo "`date +%Y\-%b\-%d\ %H\:%M\:%S\ %a` [$LINENO] $func_name: sleep woke up early $count times at: $times" >> $IP.logfile
+         echo "`date +%Y\-%b\-%d\ %H\:%M\:%S\ %a` [$LINENO] $FUNCNAME: sleep woke up early $count times at: $times" >> $IP.logfile
       fi
 
 	else
@@ -1168,8 +1149,7 @@ cd $WORKING_DIR
 # in RC_PING_IP.  The type of processing performed is OS dependent.  The ping
 # time and ping result are written to $IP.logfile
 function ping_ip () {
-local func_name=ping_ip
-if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> Inside ping_ip" >> $IP.logfile; fi
+if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$FUNCNAME:$$> Inside $FUNCNAME" >> $IP.logfile; fi
 
 	# Capture the time the ping is performed
 	TIME_OF_PING=`date +%Y\-%b\-%d\ %H\:%M\:%S\ %a`
@@ -1189,7 +1169,7 @@ if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> Inside ping_ip" >
 			;;
 
 		*) # Unknown OS
-			echo "ERROR [$LINENO]$func_name> Unknown OS" | tee -a $IP.logfile
+			echo "ERROR [$LINENO]$FUNCNAME> Unknown OS" | tee -a $IP.logfile
          exit
 	esac
 
@@ -1224,7 +1204,7 @@ if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> Inside ping_ip" >
    esac
    PING_TIME=(`echo $PARSED_TIMES | sed -e 's/\// /g' | awk '{print $2}'`)
    if [ $(($D & 0x1000)) -ne 0 ]; then 
-      echo "[$LINENO]$func_name> Value of \$PING_TIME extracted from \$PARSED_TIMES: $PING_TIME" >> $IP.logfile
+      echo "[$LINENO]$FUNCNAME> Value of \$PING_TIME extracted from \$PARSED_TIMES: $PING_TIME" >> $IP.logfile
    fi
 
    # If PING_TIME is empty then the ping failed.  Set PING_TIME to -1 and return
@@ -1238,7 +1218,7 @@ if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> Inside ping_ip" >
    # Set PING_TIME to -1 and return if there are alpha characters.
    ALPHA_FOUND=`echo $PING_TIME | sed -n -e 's/.*[a-z,A-Z].*/alpha/p' `
    if [ "$ALPHA_FOUND" == "alpha" ]; then
-      echo "ERROR [$LINENO]$func_name> Alpha characters in \$PING_TIME: $PING_TIME" >> $IP.logfile
+      echo "ERROR [$LINENO]$FUNCNAME> Alpha characters in \$PING_TIME: $PING_TIME" >> $IP.logfile
       PING_TIME=-1
       return
    fi
@@ -1251,8 +1231,7 @@ if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> Inside ping_ip" >
 #------------------------------------------------------------------------------
 # main
 function main () {
-local func_name=main
-if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> Inside main" >> $IP.logfile; fi
+if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$FUNCNAME:$$> Inside $FUNCNAME" >> $IP.logfile; fi
 
 setup_env
 
@@ -1374,7 +1353,7 @@ echo $$ >| $IP.pid
 
 # Stay in this loop forever
 while [ 1 -eq 1 ]; do
-  if [ $(($D & 0x4)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> Inside main while loop" >> $IP.logfile; fi
+  if [ $(($D & 0x4)) -ne 0 ]; then echo "[$LINENO]$FUNCNAME:$$> Inside main while loop" >> $IP.logfile; fi
   WHILE_LOOP_START=`date +%Y\-%b\-%d\ %H\:%M\:%S\ %a`
 	START_MINUTE=`date +%M`
 	START_SECOND=`date +%S`
@@ -1410,11 +1389,11 @@ while [ 1 -eq 1 ]; do
 		if [ ${toggle_cnt:=5} -eq 0 ]; then
 			toggle_cnt=5
 			if [ ${TEST_PING_STATUS:="ping_good"} = "ping_good" ]; then
-				echo "[$LINENO]$func_name:$$> Forcing \$PING_TIME to -1" >> $IP.logfile
+				echo "[$LINENO]$FUNCNAME:$$> Forcing \$PING_TIME to -1" >> $IP.logfile
 				TEST_PING_STATUS="ping_bad"
 				PING_TIME=-1
 			else
-				echo "[$LINENO]$func_name:$$> Using actual \$PING_TIME" >> $IP.logfile
+				echo "[$LINENO]$FUNCNAME:$$> Using actual \$PING_TIME" >> $IP.logfile
 				TEST_PING_STATUS="ping_good"
 			fi
 		else
@@ -1473,7 +1452,7 @@ while [ 1 -eq 1 ]; do
 	if [ $(($D & 0x400)) -ne 0 ]; then 
 		get_route $IP $TRACEROUTE_TIMEOUT
 		echo "" >> $IP.logfile
-		echo "[$LINENO]$func_name:$$> Contents of $IP.route" >> $IP.logfile
+		echo "[$LINENO]$FUNCNAME:$$> Contents of $IP.route" >> $IP.logfile
 		cat $IP.route >> $IP.logfile
 	fi
 
