@@ -3,5 +3,5 @@
 #       Pingtest job to monitor link to the Bat Cave
 #
 0,15,30,45 * * * * /home/lvl/pingtest/pt 206.197.251.254 -r 15 -t 4  -c
-0,15,30,45 * * * * /home/lvl/pingtest/pt 206.197.251.185 -r 10 -t 4  -c
+0,15,30,45 * * * * /home/lvl/pingtest/pt 206.197.251.189 -r 10 -t 4  -c
 
