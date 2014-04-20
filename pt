@@ -47,7 +47,8 @@ function display_help () {
 local func_name=display_help
 if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> Inside display_help" >> $IP.logfile; fi
 cat << EOF
------ ping_test ($SCRIPT_VER $SCRIPT_DATE) --------------------------------------------
+$(banner " ping_test ($(show_version))" )
+
 usage:
 pt IP | Domain_name  [ options ]
 
@@ -88,6 +89,21 @@ function get_version () {
    SCRIPT_DATE="TODO: Check mod date with Git"
 } # get_version
 
+function show_version () {
+    echo -n "$SCRIPT_VER $SCRIPT_DATE"
+}
+
+# If argument is passed, print argument with surrounding dashes
+# Otherwise print dashes to fill line
+# TODO: make argument banner adaptive to size of argument
+function banner () {
+    if [ -n "$*" ]
+    then
+        echo -n "-------- $* ----------"
+    else
+        echo -n "-----------------------------------------------------------"
+    fi
+}
 
 #------------------------------------------------------------------------------
 # display_debug_help:  Function to display debug help.
@@ -95,7 +111,7 @@ function display_debug_help () {
 local func_name=display_debug_help
 if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> Inside display_debug_help" >> $IP.logfile; fi
 cat << EOF | more
------ Debug Help ($SCRIPT_VER $SCRIPT_DATE) ---------------------------------------
+$(banner " Debug Help ($(show_version))" )
 Debug is enabled in one of three ways in decending order of precedence: 
 
    "-d 0xNNNN" on command line
@@ -332,7 +348,7 @@ function get_route () {
 function display_env () {
 	local func_name=display_env
    if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> Inside display_env" >> $IP.logfile; fi
-	echo "----- CURRENT ENVIRONMENT VARIABLE VALUES -----------------" >> $IP.logfile
+	echo "$(banner ' CURRENT ENVIRONMENT VARIABLE VALUES ')" >> $IP.logfile
 	echo "PID:                  $PID" >> $IP.logfile
 	echo "HOST:                 $HOST" >> $IP.logfile
 	echo "CRONJOB:              $CRONJOB" >> $IP.logfile
@@ -351,7 +367,7 @@ function display_env () {
 	echo "WEB_PAGE_UPDATE_RATE: $WEB_PAGE_UPDATE_RATE" >> $IP.logfile
 	echo "HOURLY_STATS:         $HOURLY_STATS" >> $IP.logfile
 	echo "DASH_HOURLY:          $DASH_HOURLY" >> $IP.logfile
-	echo "-----------------------------------------------------------" >> $IP.logfile
+	echo "$(banner)" >> $IP.logfile
 	return 0
 } # display_env
 
@@ -505,9 +521,11 @@ function log_entry () {
 	local func_name=log_entry
    if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> Inside log_entry" >> $IP.logfile; fi
 	if [ -e $IP.logfile ]; then
-		echo "--------------------  $SCRIPT_VER $SCRIPT_DATE ------------------------------------------" >> $IP.logfile
+		echo "$(banner $(show_version) )" >> $IP.logfile
+		
+
 	else
-		echo "--------------------  $SCRIPT_VER $SCRIPT_DATE ------------------------------------------" >| $IP.logfile
+		echo "$(banner $(show_version) )" >| $IP.logfile
 	fi
 	cat $IP.stats >> $IP.logfile
 	echo "------------------------------------------------------------------------------" >> $IP.logfile
@@ -527,7 +545,7 @@ function send_alert () {
 	cat $IP.route >> $IP.logfile
 	echo "$email_time - $1: $HOST to $IP.  Threshold: $DROPPED_THRESHOLD   Ping rate: $PING_RATE  email sent to $REPORT_EMAIL." >> $IP.emails
 	if [ "$1" = Down ]; then
-		echo "---------------------------------------- $SCRIPT_VER $SCRIPT_DATE ----- " >> $IP.emails
+		echo "$(banner $(show_version) )" >> $IP.emails
 	fi
 	if [ $(($D & 0x8)) -ne 0 ]; then 
 		echo "[$LINENO]$func_name:$$> $email_time - $1 $HOST to $IP.  alert email sent to $ALERT_EMAIL_.  Threshold: $DROPPED_THRESHOLD   Ping rate: $PING_RATE" >> $IP.logfile
@@ -546,10 +564,10 @@ function send_alert () {
 	cat $IP.stats >> /tmp/$$.email
 	
 	echo "" >> /tmp/$$.email
-	echo "----- traceroute ---------------------------------------------------------------" >> /tmp/$$.email
+	echo "$(banner ' traceroute ' )" >> /tmp/$$.email
 	cat $IP.route >> /tmp/$$.email
 	echo "" >> /tmp/$$.email
-	echo "----- email log ---------------------------------------------------------------" >> /tmp/$$.email
+	echo "$(banner ' email log ' )" >> /tmp/$$.email
 	if [ -e $IP.emails ]; then
 		cat $IP.emails >> /tmp/$$.email
 	fi
@@ -730,7 +748,7 @@ local func_name=make_copy_script
 if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> Inside make_copy_script" >> $IP.logfile; fi
 cat << EOF >| $IP.copy
 #!/bin/bash
-#----- ping_test ($SCRIPT_VER $SCRIPT_DATE) --------------------------------------------
+# $(banner " ping_test $(show_version) " )
 # This is the $IP.copy script called by pt to update the website.  The name of the
 # html file is passed in \$1 so that it can be renamed as needed.  This might be
 # required if multiple sites are testing the same destination IP and all the
@@ -829,7 +847,7 @@ if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$func_name:$$> Inside write_pt_s
 
 # Use a temp file while building up the statistics.
 cat << EOF >| $IP.stats
-------------------------------------------------------- $SCRIPT_VER $SCRIPT_DATE -------------
+$(banner " $(show_version) " )
 Ping Test:           $HOST to $IP (pid: $PID )
 Total pings:         $TOTAL_PINGS
 Total good pings:    $GOOD_PINGS
@@ -916,7 +934,7 @@ if [ "$CURRENT_DOW" = "Sun" ] && [ "$CURRENT_HOUR" = "00" ] && [ -e $IP.logfile 
 			cat $IP.stats >> /tmp/$$.email
 			if [ -e $IP.emails ]; then
 				echo "" >> /tmp/$$.email
-				echo "----- email log ---------------------------------------------------------------" >> /tmp/$$.email
+				echo "$(banner ' email log ' )" >> /tmp/$$.email
 				cat $IP.emails >> /tmp/$$.email
 			fi
 
@@ -957,11 +975,11 @@ if [ "$CURRENT_DOW" = "Sun" ] && [ "$CURRENT_HOUR" = "00" ] && [ -e $IP.logfile 
 		cat $IP.stats >> /tmp/$$.email
 		echo "" >> /tmp/$$.email
 		get_route $IP $TRACEROUTE_TIMEOUT
-		echo "----- traceroute ---------------------------------------------------------------" >> /tmp/$$.email
+		echo "$(banner ' traceroute ' )"  >> /tmp/$$.email
 		cat $IP.route >> /tmp/$$.email
 		if [ -e $IP.emails ]; then
 			echo "" >> /tmp/$$.email
-			echo "----- email log ---------------------------------------------------------------" >> /tmp/$$.email
+			echo "$(banner ' email log ' )" >> /tmp/$$.email
 			cat $IP.emails >> /tmp/$$.email
 		fi
 		cat /tmp/$$.email | $MAIL -s "pt: Weekly stats for $IP from $HOST" $REPORT_EMAIL
@@ -1116,7 +1134,7 @@ function sleep_time () {
 
 	# Output runtime statistics if debugging is turned on
 	if [ $(($D & 0x2000)) -ne 0 ]; then 
-		echo "--------------------------------------------------" >> $IP.logfile
+		echo "$(banner)" >> $IP.logfile
 		echo "START_TIME:       $START_TIME" >> $IP.logfile
 		echo "WHILE_LOOP_END:   $WHILE_LOOP_END" >> $IP.logfile
 		echo "WHILE_LOOP_START: $WHILE_LOOP_START" >> $IP.logfile
@@ -1295,12 +1313,12 @@ if [ $CRONJOB = TRUE ]; then
 		echo "pt: cron: No active pid. Restarting $HOST to $IP" >| /tmp/$$.email
 		cat $IP.stats >> /tmp/$$.email
 		echo "" >> /tmp/$$.email
-		echo "----- traceroute ---------------------------------------------------------------" >> /tmp/$$.email
+		echo "$(banner ' traceroute ' )" >> /tmp/$$.email
 		get_route $IP $TRACEROUTE_TIMEOUT
 		cat $IP.route >> /tmp/$$.email
 		if [ -e $IP.emails ]; then
 			echo "" >> /tmp/$$.email
-			echo "----- email log ---------------------------------------------------------------" >> /tmp/$$.email
+			echo "$(banner ' email log ' )" >> /tmp/$$.email
 			cat $IP.emails >> /tmp/$$.email
 		fi
 		cat /tmp/$$.email | $MAIL -s "pt: cron: ${1}: $IP from $HOST - No active pid" $ALERT_EMAIL
