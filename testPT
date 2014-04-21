@@ -1,0 +1,105 @@
+#!/usr/bin/perl
+# testPT - script to run multiple options of PingTest (pt)
+# Intended to give repeatable test of functionality.
+
+sub get_working_dir {
+    use File::Basename;
+    use Cwd;
+    my $WORKING_DIR = dirname($0);
+    if( $WORKING_DIR == '.' ) {
+        $WORKING_DIR = cwd();
+    }
+    return $WORKING_DIR;
+}
+
+printf "Working Directory: %s\n", get_working_dir();
+
+__END__
+
+function display_help () {
+
+cat << EOF
+$(banner " ping_test ($(show_version))" )
+
+usage:
+pt IP | Domain_name  [ options ]
+
+The IP or domain name is pinged once every ping_rate until the program is
+halted.  Ping results stored in IP.logfile, email log IP.emails.
+
+Options:
+				
+-c      Cron job processing
+-d n    debug level (ie. -d 0x4040 )
+-dl     Delete Logs
+-s      Show statistics
+-ea adr Email alert address (Default: $ALERT_EMAIL)
+-er adr	Email report address (Default: $REPORT_EMAIL)
+        (Separate multiple email addresses with commas and no spaces)
+-h      Help screen
+-hd     Help Debug
+-k      Kill a running instance of pt
+-m      Make a \$IP.copy script. You MUST modify this for your situation!
+-mv IP  Rename all the files associated with this test to the IP entered.
+-r n    ping Rate in seconds (Default: $PING_RATE)
+-t n    Threshold number of dropped packets before sending an email (Default: $DROPPED_THRESHOLD)
+-tto n  Traceroute TimeOut value in seconds (Default: 15)
+
+Copyright: 2004 and 2005 by John R Larsen
+		Modified for use as a link monitor scipt
+Copyright: 2009 Omnitec Corporation
+EOF
+} # display_help
+
+function display_debug_help () {
+
+if [ $(($D & 0x1)) -ne 0 ]; then echo "[$LINENO]$FUNCNAME:$$> Inside $FUNCNAME" >> $IP.logfile; fi
+
+cat << EOF | more
+$(banner " Debug Help ($(show_version))" )
+Debug is enabled in one of three ways in decending order of precedence: 
+
+   "-d 0xNNNN" on command line
+   PT_DEBUG_FLAGS environment variable
+	"debug_flags" file in same directory as pt
+
+Debug output can be changed "on the fly" by changing the contents of "debug_flags",
+which is read each time pt goes through its while loop.
+
+Debug output is added only to the logfile.  If you want to see in real time what is
+going on then tail the logfile with this command: "tail -f $IP.logfile".
+
+Each debug line is qualified with a construct like the following:
+
+if [ \$((\$D & 0x1)) -ne 0 ]; then echo "[\$LINENO]\$FUNCNAME:\$\$> Debug message or action";fi
+
+The expression on the left of -ne is a bash construct.  The $((expr)) gets
+evaluated and returns a value.  The expression I'm using is "$D & 0xNN".  The
+& performs a bitwise AND and returns the result.  If it is zero (no matching
+bits) then the debug line is skipped.  If it is non zero then the debug line
+is performed.  Each debug line can have multiple bits that turn it on or just
+a single bit.  The pattern "0xNN" is the collection of bits that turn the 
+debug on.  The action of each bit is defined below.
+
+00000000 - No debug
+
+00000001 - Enable all the "Inside function name" debug lines
+00000002 - process_command_line verbose output
+00000004 - Inside while loop message
+00000008 - send_alert: output message each time an alert email is sent
+
+00000010 - main: Display environment when starting up
+00000020 - fp: Display calls to fp with arguments and results
+00000040 - test_pid: Display contents of \$\$.test.pid
+00000080 - main: Force TEST_PING_STATUS to toggle every 5 while loops for testing
+
+00000100 - main: Output the contents of $IP.stats
+00000400 - main: Update and output the contents of $IP.route
+
+00001000 - ping_ip: Output \$PING_TIME extracted from \$PARSED_TIMES
+00008000 - get_route: Enable debugging output
+
+80000000 - Don't output the "Debug flags changed" messages in "set_debug_level"
+
+EOF
+} # display_debug_help
