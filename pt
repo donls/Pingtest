@@ -1038,12 +1038,6 @@ function sleep_time () {
     END_SECOND=`date +%-S`
     WHILE_LOOP_END=`date +%Y\-%b\-%d\ %H\:%M\:%S\ %a`
 
-    # Need to remove leading zeros from the stored values so math will work 
-    fix_number $START_MINUTE
-    START_MINUTE=$?
-    fix_number $START_SECOND    
-    START_SECOND=$?
-
     # Convert minutes to seconds and add to seconds
     let START_TIME=START_MINUTE*60
     let START_TIME=START_TIME+START_SECOND
