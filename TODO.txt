@@ -4,10 +4,13 @@ Annotate >| redirection (overrides noclobber flag)
 
 Replace `uname -a | awk` with `uname -r` or `uname --kernel-release` (print kernel release)
 Note: --kernel-release is not supported in BSD (on Apollo); use -r instead
+[Done: Replaced `uname -a | awk ...` stuff with `uname -r`]
 
-Is there a better way to detect if this is a cron job than by setting a command line variable? Perhaps detecting if terminal is attached?
+Is there a better way to detect if this is a cron job than by setting a
+command line variable? Perhaps detecting if terminal is attached?
 
 Note: local variable func_name looks like hack to simulate shell variable FUNCNAME[0]?
+[Done: Replaced $func_name with $FUNCNAME (no need to address index)]
 
 Fix date stamp errors in stats file
 Note: stats file seem to always run in 'initial' mode, giving default values,

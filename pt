@@ -32,7 +32,9 @@
 # is accessible again.  Each time an email is sent an entry is added to the
 # file $IP.emails for easy analysis.
 #
-ALERT_EMAIL=3149159900@message.ting.com,lvlammert@gmail.com,3145700809@message.ting.com
+# Temporarily take my phone out of alert to prevent spamming
+# ALERT_EMAIL=3149159900@message.ting.com,lvlammert@gmail.com,3145700809@message.ting.com
+ALERT_EMAIL=3149159900@message.ting.com,lvlammert@gmail.com,noc@omnitec.net
 REPORT_EMAIL=noc@omnitec.net
 
 # The $IP.logfile is compressed weekly and 4 old logfiles are maintained.  The
@@ -307,7 +309,7 @@ function get_route () {
         echo "traceroute started: $start_trace" >> $1.route
         echo "traceroute ended:   `date +%Y\-%b\-%d\ %H\:%M\:%S\ %a`" >> $1.route
         echo $TRACE_COMPLETE >| $1.ret_val
-          if [ $(($D & 0x1000)) -ne 0 ]; then echo "[$LINENO]$FUNCNAME:$$> traceroute -I $1 completed." >> $IP.logfile; fi
+        if [ $(($D & 0x1000)) -ne 0 ]; then echo "[$LINENO]$FUNCNAME:$$> traceroute -I $1 completed." >> $IP.logfile; fi
     } # _get_route
 
     # Initialize the file that gets tested to detect timeout condition
